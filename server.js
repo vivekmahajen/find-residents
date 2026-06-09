@@ -28,6 +28,7 @@ const pricing = require('./lib/pricing');
 const stripeLib = require('./lib/stripe');
 const adminLib = require('./lib/admin');
 const redact = require('./lib/redact');
+const cryptoLib = require('./lib/crypto');
 
 const IS_PROD = process.env.NODE_ENV === 'production';
 
@@ -968,6 +969,106 @@ async function handleClientProfile(req, res) {
   return sendJson(res, 200, result);
 }
 
+// ---- Client / lead tracker (per-agency; redact-on-store + encrypted) -------
+
+const LEAD_STATUSES = ['new', 'contacted', 'touring', 'application', 'placed', 'closed'];
+
+// A short, safe summary for the list view (always matching-masked).
+function leadSummary(lead) {
+  let record = {};
+  try {
+    record = cryptoLib.decryptJson(lead.data) || {};
+  } catch {
+    record = {};
+  }
+  const view = redact.renderProfile(record, 'matching_only', 'profile').profile;
+  return {
+    id: lead.id,
+    status: lead.status,
+    source: lead.source || null,
+    createdAt: lead.createdAt,
+    reference: record.reference || view.reference,
+    name: view.name,
+    location: view.location,
+    carePreference: view.carePreference.type,
+    age: view.age,
+  };
+}
+
+async function handleCreateLead(req, res) {
+  const user = await currentUser(req);
+  if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
+  const body = await readJsonBody(req).catch(() => null);
+  if (!body) return sendJson(res, 400, { error: 'Invalid request.' });
+
+  const { record, withheld } = redact.toStorableRecord(body.record || {});
+  const status = LEAD_STATUSES.includes(body.status) ? body.status : 'new';
+  const source = body.sourceHospital ? String(body.sourceHospital).slice(0, 200) : null;
+  const lead = await store.createLead({
+    userId: user.id,
+    status,
+    source,
+    data: cryptoLib.encryptJson(record),
+  });
+  return sendJson(res, 201, { lead: leadSummary(lead), withheld, encrypted: cryptoLib.enabled() });
+}
+
+async function handleListLeads(req, res) {
+  const user = await currentUser(req);
+  if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
+  const leads = await store.listLeads(user.id);
+  return sendJson(res, 200, {
+    leads: leads.map(leadSummary),
+    encrypted: cryptoLib.enabled(),
+    statuses: LEAD_STATUSES,
+  });
+}
+
+async function handleGetLead(req, res, id, urlObj) {
+  const user = await currentUser(req);
+  if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
+  const lead = await store.getLead(id);
+  if (!lead || lead.userId !== user.id) return sendJson(res, 404, { error: 'Not found.' });
+  const record = cryptoLib.decryptJson(lead.data) || {};
+  const rendered = redact.renderProfile(
+    record,
+    urlObj.searchParams.get('viewerRole'),
+    urlObj.searchParams.get('outputMode')
+  );
+  return sendJson(res, 200, {
+    lead: { id: lead.id, status: lead.status, source: lead.source, createdAt: lead.createdAt },
+    rendered,
+  });
+}
+
+async function handleUpdateLead(req, res, id) {
+  const user = await currentUser(req);
+  if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
+  const lead = await store.getLead(id);
+  if (!lead || lead.userId !== user.id) return sendJson(res, 404, { error: 'Not found.' });
+  const body = await readJsonBody(req).catch(() => null);
+  if (!body) return sendJson(res, 400, { error: 'Invalid request.' });
+
+  const patch = {};
+  if (body.status && LEAD_STATUSES.includes(body.status)) patch.status = body.status;
+  if ('sourceHospital' in body) patch.source = body.sourceHospital ? String(body.sourceHospital).slice(0, 200) : null;
+  if (body.record) {
+    const { record } = redact.toStorableRecord(body.record);
+    patch.data = cryptoLib.encryptJson(record);
+  }
+  const updated = await store.updateLead(id, patch);
+  return sendJson(res, 200, { lead: leadSummary(updated) });
+}
+
+async function handleDeleteLead(req, res, id) {
+  const user = await currentUser(req);
+  if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
+  const lead = await store.getLead(id);
+  if (!lead || lead.userId !== user.id) return sendJson(res, 404, { error: 'Not found.' });
+  await store.deleteLead(id);
+  return sendJson(res, 200, { ok: true });
+}
+
 function serveStatic(req, res, pathname) {
   let rel = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
   // Prevent path traversal.
@@ -1026,6 +1127,16 @@ async function route(req, res) {
   if (pathname === '/api/client-profile' && method === 'POST') {
     if (!(await currentUser(req))) return sendJson(res, 401, { error: 'Please log in.' });
     return handleClientProfile(req, res);
+  }
+
+  // --- Client / lead tracker (auth) ---
+  if (pathname === '/api/leads' && method === 'GET') return handleListLeads(req, res);
+  if (pathname === '/api/leads' && method === 'POST') return handleCreateLead(req, res);
+  if (pathname.startsWith('/api/leads/')) {
+    const id = decodeURIComponent(pathname.slice('/api/leads/'.length));
+    if (method === 'GET') return handleGetLead(req, res, id, urlObj);
+    if (method === 'POST') return handleUpdateLead(req, res, id);
+    if (method === 'DELETE') return handleDeleteLead(req, res, id);
   }
 
   // --- Credit pricing & account ---
