@@ -233,13 +233,45 @@
           <label class="pf-label">Notes <span class="muted">(free text — sensitive items are scrubbed)</span> <textarea id="cl-notes" rows="2"></textarea></label>
           <label class="pf-label">Raw intake paste <span class="muted">(optional — any pasted text, scrubbed)</span> <textarea id="cl-raw" rows="2"></textarea></label>
 
+          <div class="two-col">
+            <label class="pf-label">Referred by <span class="muted">(hospital / source)</span> <input id="cl-source" type="text" /></label>
+            <label class="pf-label">Status
+              <select id="cl-status">
+                <option value="new">New</option>
+                <option value="contacted">Contacted</option>
+                <option value="touring">Touring</option>
+                <option value="application">Application</option>
+                <option value="placed">Placed</option>
+                <option value="closed">Closed</option>
+              </select>
+            </label>
+          </div>
+
           <div class="plan-footer">
             <span id="client-status" class="plan-status"></span>
-            <button id="render-client" type="button" class="primary-btn">Render safe profile</button>
+            <span>
+              <button id="render-client" type="button" class="primary-btn">Render safe profile</button>
+              <button id="save-client" type="button" class="deck-btn">Save to my clients</button>
+            </span>
           </div>
         </form>
 
         <div id="client-result" class="client-result" hidden></div>
+      </section>
+
+      <!-- Saved clients / leads -->
+      <section class="panel" id="leads-panel">
+        <div class="plan-head">
+          <div>
+            <h2>My clients</h2>
+            <p class="subtitle">
+              Referrals you've received. Stored with sensitive identifiers stripped
+              and the rest encrypted at rest. <span id="enc-note" class="muted"></span>
+            </p>
+          </div>
+        </div>
+        <div id="leads-list" class="leads-list"></div>
+        <div id="lead-view" class="client-result" hidden></div>
       </section>
 
       <!-- Referral source finder -->
@@ -295,6 +327,7 @@
     <script src="/dashboard.js"></script>
     <script src="/profile.js"></script>
     <script src="/clients.js"></script>
+    <script src="/leads.js"></script>
     <script src="/app.js"></script>
   </body>
 </html>

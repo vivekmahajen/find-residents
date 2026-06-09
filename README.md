@@ -25,6 +25,7 @@ The app runs as a standalone Node server locally *and* as a Vercel serverless fu
    | `STRIPE_WEBHOOK_SECRET` | For billing | `whsec_...` (from step 4) |
    | `BASE_URL` | Recommended | `https://your-app.vercel.app` (Stripe redirects) |
    | `NODE_ENV` | Recommended | `production` (Secure cookies) |
+   | `DATA_ENCRYPTION_KEY` | Recommended | any strong secret — encrypts saved client/lead records at rest |
    | `PGSSL` | Optional | `disable` only for a non-TLS local Postgres |
 
 3. **Deploy** (`git push` to the connected repo, or `vercel`). `npm install` pulls `pg`, `@anthropic-ai/sdk`, `pptxgenjs`, `stripe`.
@@ -109,7 +110,16 @@ Turn a raw client intake into a clean, **matching-ready** card with sensitive id
 - **Role-gated contact** (`full` / `matching_only` / `partner_facility`): masks phone to last 2 digits and email local part for matching, and hides direct contact entirely for partner facilities ("via agency").
 - **Data minimization:** only the placement-relevant schema fields are shown; special-category data (race, religion, etc.) is omitted unless stated as a care *preference* (e.g., "faith-based home") or functional need.
 - **Transparency footer** lists every sensitive category that was present but withheld.
-- **Stateless / no PHI stored:** the record is processed in-memory and discarded — nothing is persisted. (A saved client roster would require encryption-at-rest + access controls; deliberately out of scope.) This reduces exposure but does not replace your HIPAA/CCPA obligations.
+- **Stateless / no PHI stored:** the renderer (`/api/client-profile`) is stateless — nothing is persisted. To keep clients, use the tracker below.
+
+### 👥 Client / lead tracker
+
+Save the referrals you've received (data **you** enter — never pulled from a hospital) and track them through placement. Per-agency, scoped to your login.
+
+- **Redact-on-store:** sensitive identifiers (SSN, financial, government, medical IDs) and full DOB are stripped **before anything is written** — the database never contains them (verified: the on-disk record holds no SSN/MRN/DOB).
+- **Encryption at rest:** the stored record is AES-256-GCM encrypted with `DATA_ENCRYPTION_KEY`. Without the key it still works (redacted plaintext) but logs that encryption is off — **set the key in production.**
+- **Access control:** leads are scoped to the owning agency; another account gets a 404.
+- **Status pipeline** (new → contacted → touring → application → placed → closed), optional "referred by" source, role-gated **View** (full / matching / partner), and delete. Endpoints: `GET/POST /api/leads`, `GET/POST/DELETE /api/leads/:id`.
 
 ### 🗺️ Data coverage (optional, free)
 
