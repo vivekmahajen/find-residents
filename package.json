@@ -6,7 +6,8 @@
   "type": "commonjs",
   "scripts": {
     "start": "node server.js",
-    "create-admin": "node scripts/create-admin.js"
+    "create-admin": "node scripts/create-admin.js",
+    "reset-credits": "node scripts/reset-credits.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "latest",
