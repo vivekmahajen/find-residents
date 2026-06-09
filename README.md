@@ -4,9 +4,9 @@ A playbook for building a repeatable pipeline of residents/clients, plus a compr
 
 ---
 
-## 🏥 Hospital Finder app (included in this repo)
+## 🏥 Referral Source Finder app (included in this repo)
 
-A small web app that turns a **city or ZIP code** into a list of nearby **hospitals** — your Tier 1 referral sources (see §2). Useful for fast Source Discovery.
+A small web app that turns a **city or ZIP code** into a list of nearby **Tier 1 referral sources** — **hospitals**, **skilled nursing facilities (SNFs)**, and **hospice & home-health agencies** (see §2–§3). Pick the source type, then research and plan outreach for each result. Useful for fast Source Discovery.
 
 **Run it:**
 
@@ -17,7 +17,8 @@ npm start          # or: node server.js
 
 - **No dependencies, no build step, no API key.** Requires Node 18+.
 - **Data source:** the free federal **NPI Registry (NPPES)** API. Live, nationwide.
-- **How it works:** a tiny Node server (`server.js`) proxies the NPPES API (which has no CORS headers), filters to hospital taxonomies, de-duplicates, caches for 10 min, and serves the frontend in `public/`.
+- **How it works:** a tiny Node server (`server.js`) proxies the NPPES API (which has no CORS headers), filters to the right NPI taxonomies for the chosen **source type**, de-duplicates, caches for 10 min, and serves the frontend in `public/`.
+- **Source types:** Hospitals · Skilled Nursing (SNF) · Hospice & Home Health. Each maps to its own taxonomies and the staff roles you'd approach; SNF and hospice are flagged **reciprocal** (you can refer families to them too), which the strategist leans into.
 - **Search by:** city (with a state selector, default CA) or a 5-digit ZIP. County input is not yet supported.
 - **Returns only public organizational data** — hospital name, address, phone, type, NPI, and a map link. **No patient data / PHI is ever requested or stored.** Approach hospitals through their *Case Management / Discharge Planning* department, and verify every contact detail on the hospital's official site before outreach.
 
@@ -25,10 +26,10 @@ npm start          # or: node server.js
 
 ### 🤖 AI pain-point analysis & outreach strategy (two agents)
 
-For any hospital in the results, pick the **role you're contacting** (Case Manager, Discharge Planner, Medical Social Worker, Director of Case Management) and click **"Pain points & approach"**. Two chained Claude agents run:
+For any source in the results, pick the **role you're contacting** (the dropdown adapts to the source type — e.g. SNF Social Worker, Hospice Community Liaison) and click **"Pain points & approach"**. Two chained Claude agents run:
 
-1. **Agent 1 — Pain Point Analyst:** identifies that role's real operational pain points (length of stay, throughput, readmissions, hard-to-place patients), ranked by severity.
-2. **Agent 2 — Outreach Strategist:** takes those pain points + your agency profile and produces a tailored, compliant approach — value-prop mapping, talking points, a CAN-SPAM-compliant draft email, and compliance reminders.
+1. **Agent 1 — Pain Point Analyst:** identifies that role's real operational pain points (length of stay, throughput, census, readmissions, hard-to-place patients), ranked by severity.
+2. **Agent 2 — Outreach Strategist:** takes those pain points + your agency profile and produces a tailored, compliant approach — value-prop mapping, talking points, a CAN-SPAM-compliant draft email (with a **copy button**), and compliance reminders. For reciprocal sources (SNF, hospice) it leads with two-way partnership.
 
 **Setup (only needed for this feature):**
 

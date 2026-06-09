@@ -8,15 +8,20 @@
   </head>
   <body>
     <header class="site-header">
-      <h1>🏥 Hospital Finder</h1>
+      <h1>🏥 Referral Source Finder</h1>
       <p class="subtitle">
-        Find hospitals by city or ZIP to build your Tier&nbsp;1 referral-source
-        pipeline. Data from the federal NPI Registry (NPPES).
+        Find hospitals, skilled nursing facilities, and hospice/home-health
+        agencies by city or ZIP to build your Tier&nbsp;1 referral pipeline.
+        Data from the federal NPI Registry (NPPES).
       </p>
     </header>
 
     <main>
       <form id="search-form" class="search-card" autocomplete="off">
+        <div class="field">
+          <label for="facility-type">Source type</label>
+          <select id="facility-type" name="facility-type"></select>
+        </div>
         <div class="field field-grow">
           <label for="location">City or ZIP code</label>
           <input
@@ -42,10 +47,10 @@
     <footer class="site-footer">
       <p>
         <strong>Compliance:</strong> Results are public organizational data only
-        (name, address, phone, type) — no patient data / PHI. Approach hospitals
-        through their <em>Case Management / Discharge Planning</em> department, and
-        verify all contact details on the hospital's official site before outreach.
-        Respect each facility's vendor/solicitation policy.
+        (name, address, phone, type) — no patient data / PHI. Approach each source
+        through the right department (Case Management, Social Work, or Admissions),
+        and verify all contact details on the organization's official site before
+        outreach. Respect each facility's vendor/solicitation policy.
       </p>
       <p class="muted">
         Source: NPI Registry (NPPES), U.S. Centers for Medicare &amp; Medicaid

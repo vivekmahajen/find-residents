@@ -382,6 +382,28 @@ main {
   color: #6b4e09;
 }
 
+.email-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.copy-btn {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--brand);
+  background: rgba(31, 111, 235, 0.08);
+  border: 1px solid rgba(31, 111, 235, 0.25);
+  border-radius: 7px;
+  padding: 0.3rem 0.7rem;
+  cursor: pointer;
+}
+
+.copy-btn:hover {
+  background: rgba(31, 111, 235, 0.15);
+}
+
 .email {
   background: var(--bg);
   border: 1px solid var(--border);
