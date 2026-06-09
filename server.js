@@ -26,6 +26,7 @@ const profileLib = require('./lib/profile');
 const deckLib = require('./lib/deck');
 const pricing = require('./lib/pricing');
 const stripeLib = require('./lib/stripe');
+const adminLib = require('./lib/admin');
 
 const IS_PROD = process.env.NODE_ENV === 'production';
 
@@ -484,18 +485,19 @@ async function handleStrategy(req, res) {
   }
 
   // Use the agency's own profile if they've built one; otherwise fall back.
-  const user = currentUser(req);
+  const user = await currentUser(req);
   const usedProfile = !!(user && user.profile && !profileLib.isEmpty(user.profile));
   const agencyContext = usedProfile ? profileLib.toContext(user.profile) : fallbackAgencyContext();
 
-  // Credit pre-check (a tailored case is a "document"). Free plans must have
-  // the credits; paid plans meter overage and are charged after success.
-  const acct = ensureAccount(user);
+  // Credit pre-check (a tailored case is a "document"). Admins bypass billing.
+  // Free plans must have the credits; paid plans meter overage.
+  const admin = adminLib.isAdmin(user);
+  const acct = await ensureAccount(user);
   pricing.refreshCycle(acct);
-  if (!pricing.canAfford(acct, 'document')) {
+  if (!admin && !pricing.canAfford(acct, 'document')) {
     return sendJson(res, 402, {
       error: 'Out of credits — upgrade your plan or add a top-up to generate a tailored case.',
-      account: pricing.accountView(acct),
+      account: accountViewFor(user, acct),
     });
   }
 
@@ -505,11 +507,11 @@ async function handleStrategy(req, res) {
     const { painPoints } = await runPainPointAnalyst(client, facility, role, facilityType);
     const strategy = await runCaseGenerator(client, facility, role, painPoints || [], facilityType, agencyContext);
     strategy.savingsComputed = computeSavings(strategy.savings);
-    const charged = pricing.charge(acct, 'document');
-    store.updateUser(user.id, { account: acct });
+    const charged = admin ? { mode: 'admin', creditsCharged: 0 } : pricing.charge(acct, 'document');
+    if (!admin) await store.updateUser(user.id, { account: acct });
     return sendJson(res, 200, {
       facility: facility.name, role, painPoints, strategy, usedProfile,
-      charged, account: pricing.accountView(acct),
+      charged, account: accountViewFor(user, acct),
     });
   } catch (err) {
     if (err instanceof StrategyUnavailable) {
@@ -524,7 +526,7 @@ async function handleStrategy(req, res) {
 
 // Build a PowerPoint pitch deck from an already-generated case (no model call).
 async function handleDeck(req, res) {
-  const user = currentUser(req);
+  const user = await currentUser(req);
   const body = await readJsonBody(req).catch(() => null);
   if (!body) return sendJson(res, 400, { error: 'Invalid request.' });
 
@@ -536,13 +538,14 @@ async function handleDeck(req, res) {
   if (!facility || !facility.name) return sendJson(res, 400, { error: 'Missing facility details.' });
   if (!role) return sendJson(res, 400, { error: 'Missing role.' });
 
-  // Credit pre-check (a deck costs deck credits).
-  const acct = ensureAccount(user);
+  // Credit pre-check (a deck costs deck credits). Admins bypass billing.
+  const admin = adminLib.isAdmin(user);
+  const acct = await ensureAccount(user);
   pricing.refreshCycle(acct);
-  if (!pricing.canAfford(acct, 'deck')) {
+  if (!admin && !pricing.canAfford(acct, 'deck')) {
     return sendJson(res, 402, {
       error: 'Out of credits — upgrade your plan or add a top-up to export a PowerPoint.',
-      account: pricing.accountView(acct),
+      account: accountViewFor(user, acct),
     });
   }
 
@@ -560,9 +563,11 @@ async function handleDeck(req, res) {
       strategy,
       savings,
     });
-    // Deck built successfully — charge the deck credit now.
-    pricing.charge(acct, 'deck');
-    store.updateUser(user.id, { account: acct });
+    // Deck built successfully — charge the deck credit now (admins are free).
+    if (!admin) {
+      pricing.charge(acct, 'deck');
+      await store.updateUser(user.id, { account: acct });
+    }
 
     const safeName = String(facility.name).replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'deck';
     res.writeHead(200, {
@@ -595,10 +600,10 @@ function parseCookies(req) {
   return out;
 }
 
-function currentUser(req) {
+async function currentUser(req) {
   const sid = parseCookies(req).sid;
   if (!sid) return null;
-  const session = store.getSession(sid);
+  const session = await store.getSession(sid);
   if (!session) return null;
   return store.findById(session.userId);
 }
@@ -633,12 +638,12 @@ async function handleSignup(req, res) {
   const pErr = authlib.passwordIssue(password);
   if (pErr) return sendJson(res, 400, { error: pErr });
 
-  if (store.findByUsername(username)) return sendJson(res, 409, { error: 'That User ID is already taken.' });
-  if (store.findByEmail(email)) return sendJson(res, 409, { error: 'An account with that email already exists.' });
+  if (await store.findByUsername(username)) return sendJson(res, 409, { error: 'That User ID is already taken.' });
+  if (await store.findByEmail(email)) return sendJson(res, 409, { error: 'An account with that email already exists.' });
 
-  const user = store.createUser({ username, email, passwordHash: authlib.hashPassword(password) });
-  ensureAccount(user); // start everyone on the Free plan (30 credits)
-  setSessionCookie(res, store.createSession(user.id));
+  const user = await store.createUser({ username, email, passwordHash: authlib.hashPassword(password) });
+  await ensureAccount(user); // start everyone on the Free plan (30 credits)
+  setSessionCookie(res, await store.createSession(user.id));
   return sendJson(res, 201, { user: publicUser(user) });
 }
 
@@ -651,26 +656,26 @@ async function handleLogin(req, res) {
   if (!identifier || !password) return sendJson(res, 400, { error: 'Enter your User ID / email and password.' });
 
   const user = authlib.isValidEmail(identifier)
-    ? store.findByEmail(identifier)
-    : store.findByUsername(identifier);
+    ? await store.findByEmail(identifier)
+    : await store.findByUsername(identifier);
 
   // Generic message — don't reveal whether the account exists.
   if (!user || !authlib.verifyPassword(password, user.passwordHash)) {
     return sendJson(res, 401, { error: 'Invalid credentials.' });
   }
-  setSessionCookie(res, store.createSession(user.id));
+  setSessionCookie(res, await store.createSession(user.id));
   return sendJson(res, 200, { user: publicUser(user) });
 }
 
-function handleLogout(req, res) {
+async function handleLogout(req, res) {
   const sid = parseCookies(req).sid;
-  if (sid) store.deleteSession(sid);
+  if (sid) await store.deleteSession(sid);
   clearSessionCookie(res);
   return sendJson(res, 200, { ok: true });
 }
 
-function handleMe(req, res) {
-  const user = currentUser(req);
+async function handleMe(req, res) {
+  const user = await currentUser(req);
   if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
   return sendJson(res, 200, { user: publicUser(user) });
 }
@@ -680,10 +685,10 @@ async function handleForgot(req, res) {
   if (!body) return sendJson(res, 400, { error: 'Invalid request.' });
   const email = String(body.email || '').trim();
 
-  const user = authlib.isValidEmail(email) ? store.findByEmail(email) : null;
+  const user = authlib.isValidEmail(email) ? await store.findByEmail(email) : null;
   let devResetLink;
   if (user) {
-    const token = store.createReset(user.id);
+    const token = await store.createReset(user.id);
     const link = `http://${req.headers.host || 'localhost'}/?token=${token}`;
     await mailer.sendPasswordReset(user.email, link);
     if (!IS_PROD) devResetLink = link; // surfaced only in dev for testing
@@ -701,12 +706,12 @@ async function handleReset(req, res) {
   const pErr = authlib.passwordIssue(password);
   if (pErr) return sendJson(res, 400, { error: pErr });
 
-  const reset = store.getReset(token);
+  const reset = await store.getReset(token);
   if (!reset) return sendJson(res, 400, { error: 'This reset link is invalid or has expired.' });
 
-  store.updateUser(reset.userId, { passwordHash: authlib.hashPassword(password) });
-  store.deleteReset(token);
-  store.deleteSessionsForUser(reset.userId); // force re-login everywhere
+  await store.updateUser(reset.userId, { passwordHash: authlib.hashPassword(password) });
+  await store.deleteReset(token);
+  await store.deleteSessionsForUser(reset.userId); // force re-login everywhere
   return sendJson(res, 200, { ok: true });
 }
 
@@ -720,14 +725,14 @@ function handlePlans(req, res) {
   });
 }
 
-function handleGetSubscription(req, res) {
-  const user = currentUser(req);
+async function handleGetSubscription(req, res) {
+  const user = await currentUser(req);
   if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
   return sendJson(res, 200, { subscription: user.subscription || null });
 }
 
 async function handleSetSubscription(req, res) {
-  const user = currentUser(req);
+  const user = await currentUser(req);
   if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
 
   const body = await readJsonBody(req).catch(() => null);
@@ -754,36 +759,46 @@ async function handleSetSubscription(req, res) {
     priceMonthly,
     updatedAt: new Date().toISOString(),
   };
-  store.updateUser(user.id, { subscription });
+  await store.updateUser(user.id, { subscription });
   return sendJson(res, 200, { subscription });
 }
 
 // ---- Agency profile -------------------------------------------------------
 
-function handleGetProfile(req, res) {
-  const user = currentUser(req);
+async function handleGetProfile(req, res) {
+  const user = await currentUser(req);
   if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
   return sendJson(res, 200, { profile: user.profile || null, options: profileLib.OPTIONS });
 }
 
 async function handleSetProfile(req, res) {
-  const user = currentUser(req);
+  const user = await currentUser(req);
   if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
   const body = await readJsonBody(req).catch(() => null);
   if (!body) return sendJson(res, 400, { error: 'Invalid request.' });
   const profile = profileLib.sanitize(body);
-  store.updateUser(user.id, { profile });
+  await store.updateUser(user.id, { profile });
   return sendJson(res, 200, { profile });
 }
 
 // ---- Credit plan & account ------------------------------------------------
 
-function ensureAccount(user) {
+async function ensureAccount(user) {
   if (!user.account) {
     user.account = pricing.defaultAccount();
-    store.updateUser(user.id, { account: user.account });
+    await store.updateUser(user.id, { account: user.account });
   }
   return user.account;
+}
+
+// Account view + admin flag (admins are unlimited / not billed).
+function accountViewFor(user, acct) {
+  const view = pricing.accountView(acct);
+  if (adminLib.isAdmin(user)) {
+    view.admin = true;
+    view.unlimited = true;
+  }
+  return view;
 }
 
 function handlePricing(req, res) {
@@ -796,16 +811,16 @@ function baseUrlFrom(req) {
   return `${proto}://${req.headers.host || 'localhost'}`;
 }
 
-function handleGetAccount(req, res) {
-  const user = currentUser(req);
+async function handleGetAccount(req, res) {
+  const user = await currentUser(req);
   if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
-  const acct = ensureAccount(user);
-  if (pricing.refreshCycle(acct)) store.updateUser(user.id, { account: acct });
-  return sendJson(res, 200, { account: pricing.accountView(acct) });
+  const acct = await ensureAccount(user);
+  if (pricing.refreshCycle(acct)) await store.updateUser(user.id, { account: acct });
+  return sendJson(res, 200, { account: accountViewFor(user, acct) });
 }
 
 async function handleSetPlan(req, res) {
-  const user = currentUser(req);
+  const user = await currentUser(req);
   if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
   const body = await readJsonBody(req).catch(() => null);
   if (!body) return sendJson(res, 400, { error: 'Invalid request.' });
@@ -816,14 +831,14 @@ async function handleSetPlan(req, res) {
   if (stripeLib.enabled() && plan.monthly > 0) {
     return sendJson(res, 400, { error: 'Use secure checkout to subscribe to a paid plan.' });
   }
-  const acct = ensureAccount(user);
+  const acct = await ensureAccount(user);
   pricing.setPlan(acct, plan.id, !!body.annual);
-  store.updateUser(user.id, { account: acct });
+  await store.updateUser(user.id, { account: acct });
   return sendJson(res, 200, { account: pricing.accountView(acct) });
 }
 
 async function handleTopup(req, res) {
-  const user = currentUser(req);
+  const user = await currentUser(req);
   if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
   const body = await readJsonBody(req).catch(() => null);
   if (!body) return sendJson(res, 400, { error: 'Invalid request.' });
@@ -833,16 +848,16 @@ async function handleTopup(req, res) {
   if (stripeLib.enabled()) {
     return sendJson(res, 400, { error: 'Use secure checkout to buy credits.' });
   }
-  const acct = ensureAccount(user);
+  const acct = await ensureAccount(user);
   pricing.addTopup(acct, pack.credits);
-  store.updateUser(user.id, { account: acct });
+  await store.updateUser(user.id, { account: acct });
   return sendJson(res, 200, { account: pricing.accountView(acct), purchased: pack });
 }
 
 // ---- Stripe checkout & webhook --------------------------------------------
 
 async function handleCheckoutPlan(req, res) {
-  const user = currentUser(req);
+  const user = await currentUser(req);
   if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
   const body = await readJsonBody(req).catch(() => null);
   if (!body) return sendJson(res, 400, { error: 'Invalid request.' });
@@ -850,7 +865,7 @@ async function handleCheckoutPlan(req, res) {
   if (!plan || plan.custom || !(plan.monthly > 0)) {
     return sendJson(res, 400, { error: 'Choose a paid plan to check out.' });
   }
-  ensureAccount(user);
+  await ensureAccount(user);
   try {
     const url = await stripeLib.createPlanCheckout({
       user, plan, annual: !!body.annual, baseUrl: baseUrlFrom(req),
@@ -865,13 +880,13 @@ async function handleCheckoutPlan(req, res) {
 }
 
 async function handleCheckoutTopup(req, res) {
-  const user = currentUser(req);
+  const user = await currentUser(req);
   if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
   const body = await readJsonBody(req).catch(() => null);
   if (!body) return sendJson(res, 400, { error: 'Invalid request.' });
   const pack = pricing.TOPUP_PACKS.find((t) => t.credits === Number(body.credits));
   if (!pack) return sendJson(res, 400, { error: 'Unknown top-up pack.' });
-  ensureAccount(user);
+  await ensureAccount(user);
   try {
     const url = await stripeLib.createTopupCheckout({ user, pack, baseUrl: baseUrlFrom(req) });
     return sendJson(res, 200, { url });
@@ -893,11 +908,11 @@ function readRawBody(req) {
 }
 
 // Grant entitlements after Stripe confirms payment. Idempotent enough for MVP.
-function fulfillStripeEvent(event) {
+async function fulfillStripeEvent(event) {
   const obj = event.data.object;
   if (event.type === 'checkout.session.completed') {
     const md = obj.metadata || {};
-    const user = md.userId ? store.findById(md.userId) : null;
+    const user = md.userId ? await store.findById(md.userId) : null;
     if (!user) return;
     const acct = user.account || pricing.defaultAccount();
     user.account = acct;
@@ -912,13 +927,13 @@ function fulfillStripeEvent(event) {
       const credits = Number(md.credits);
       if (credits > 0) pricing.addTopup(acct, credits);
     }
-    store.updateUser(user.id, { account: acct });
+    await store.updateUser(user.id, { account: acct });
   } else if (event.type === 'customer.subscription.deleted') {
     const md = obj.metadata || {};
-    const user = md.userId ? store.findById(md.userId) : null;
+    const user = md.userId ? await store.findById(md.userId) : null;
     if (user && user.account) {
       pricing.setPlan(user.account, 'free', false);
-      store.updateUser(user.id, { account: user.account });
+      await store.updateUser(user.id, { account: user.account });
     }
   }
 }
@@ -933,7 +948,7 @@ async function handleStripeWebhook(req, res) {
     return res.end(`Webhook error: ${err.message}`);
   }
   try {
-    fulfillStripeEvent(event);
+    await fulfillStripeEvent(event);
   } catch {
     // Never fail the webhook on a fulfillment hiccup; Stripe will retry on non-2xx.
   }
@@ -965,17 +980,17 @@ function redirect(res, location) {
   res.end();
 }
 
-const server = http.createServer((req, res) => {
+async function route(req, res) {
   const urlObj = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   const { pathname } = urlObj;
   const method = req.method;
 
   // --- Page routing: login is the landing page ---
   if (pathname === '/') {
-    return currentUser(req) ? redirect(res, '/app') : serveStatic(req, res, '/index.html');
+    return (await currentUser(req)) ? redirect(res, '/app') : serveStatic(req, res, '/index.html');
   }
   if (pathname === '/app') {
-    return currentUser(req) ? serveStatic(req, res, '/app.html') : redirect(res, '/');
+    return (await currentUser(req)) ? serveStatic(req, res, '/app.html') : redirect(res, '/');
   }
 
   // --- Auth API (public) ---
@@ -1008,7 +1023,7 @@ const server = http.createServer((req, res) => {
 
   // --- Data API (requires login; AI deliverables consume credits) ---
   if (pathname === '/api/facility-types') {
-    if (!currentUser(req)) return sendJson(res, 401, { error: 'Please log in.' });
+    if (!(await currentUser(req))) return sendJson(res, 401, { error: 'Please log in.' });
     const types = Object.entries(FACILITY_TYPES).map(([id, t]) => ({
       id,
       label: t.label,
@@ -1018,21 +1033,64 @@ const server = http.createServer((req, res) => {
     return sendJson(res, 200, { types, default: DEFAULT_TYPE });
   }
   if (pathname === '/api/hospitals') {
-    if (!currentUser(req)) return sendJson(res, 401, { error: 'Please log in.' });
+    if (!(await currentUser(req))) return sendJson(res, 401, { error: 'Please log in.' });
     return handleApi(req, res, urlObj); // search is free
   }
   if (pathname === '/api/strategy' && method === 'POST') {
-    if (!currentUser(req)) return sendJson(res, 401, { error: 'Please log in.' });
+    if (!(await currentUser(req))) return sendJson(res, 401, { error: 'Please log in.' });
     return handleStrategy(req, res);
   }
   if (pathname === '/api/deck' && method === 'POST') {
-    if (!currentUser(req)) return sendJson(res, 401, { error: 'Please log in.' });
+    if (!(await currentUser(req))) return sendJson(res, 401, { error: 'Please log in.' });
     return handleDeck(req, res);
   }
 
   return serveStatic(req, res, pathname);
-});
+}
 
-server.listen(PORT, () => {
-  console.log(`Referral Source Finder running at http://localhost:${PORT}`);
-});
+// Create the admin account from env (ADMIN_EMAIL + ADMIN_PASSWORD) if it
+// doesn't exist yet. Runs once after the store is ready. The password is never
+// reset on subsequent boots; use scripts/create-admin.js to rotate it.
+async function seedAdminFromEnv() {
+  const email = String(process.env.ADMIN_EMAIL || '').trim();
+  const password = process.env.ADMIN_PASSWORD || '';
+  if (!email || !password) return;
+  if (await store.findByEmail(email)) return;
+  let username = (email.split('@')[0] || 'admin').replace(/[^a-zA-Z0-9_.-]/g, '').slice(0, 32);
+  if (username.length < 3) username = 'admin';
+  let candidate = username;
+  let n = 1;
+  while (await store.findByUsername(candidate)) candidate = `${username.slice(0, 28)}${n++}`.slice(0, 32);
+  await store.createUser({ username: candidate, email, passwordHash: authlib.hashPassword(password) });
+  // eslint-disable-next-line no-console
+  console.log(`Seeded admin account for ${email}`);
+}
+
+// Exported request handler — used by server.listen (local / persistent host)
+// and by the Vercel serverless entrypoint (api/index.js).
+let storeReady = null;
+async function handler(req, res) {
+  try {
+    if (!storeReady) storeReady = store.init().then(seedAdminFromEnv);
+    await storeReady;
+    await route(req, res);
+  } catch (err) {
+    if (!res.headersSent) {
+      res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: 'Internal server error.' }));
+    }
+    // eslint-disable-next-line no-console
+    console.error('Unhandled request error:', err);
+  }
+}
+
+module.exports = handler;
+module.exports.handler = handler;
+
+// Start a listener only when run directly (not when imported on Vercel).
+if (require.main === module) {
+  http.createServer(handler).listen(PORT, () => {
+    // eslint-disable-next-line no-console
+    console.log(`Referral Source Finder running at http://localhost:${PORT}`);
+  });
+}

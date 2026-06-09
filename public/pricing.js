@@ -23,6 +23,12 @@
 
   function renderBalance() {
     if (!account) return;
+    if (account.admin) {
+      balanceEl.innerHTML =
+        '<span class="bal-credits">Unlimited</span>' +
+        '<span class="bal-plan">Admin · no billing</span>';
+      return;
+    }
     const over = account.overageUsd > 0 ? ` · <span class="over">${money(account.overageUsd)} overage</span>` : '';
     balanceEl.innerHTML =
       `<span class="bal-credits">${account.totalCredits.toLocaleString()} credits</span>` +

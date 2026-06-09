@@ -6,16 +6,43 @@ A playbook for building a repeatable pipeline of residents/clients, plus a compr
 
 ## 🏥 Referral Source Finder app (included in this repo)
 
-A web app with **accounts and a county-based subscription**, gating a finder that turns a **city or ZIP code** into a list of nearby **Tier 1 referral sources** — **hospitals**, **skilled nursing facilities (SNFs)**, and **hospice & home-health agencies** (see §2–§3).
+A web app with **accounts and credit-based pricing**, where logged-in agencies search **Tier 1 referral sources** — **hospitals**, **skilled nursing facilities (SNFs)**, and **hospice & home-health agencies** (see §2–§3) — and spend credits on AI deliverables.
 
-**Run it:**
+## ☁️ Deploying to Vercel
+
+The app runs as a standalone Node server locally *and* as a Vercel serverless function (`api/index.js` reuses the same exported request handler via `vercel.json`). For Vercel you must use the **Postgres store** (the serverless filesystem is ephemeral).
+
+**Steps:**
+1. **Create a database.** Vercel Dashboard → **Storage → Create → Postgres** (or use Neon/Supabase). This sets `DATABASE_URL` (or `POSTGRES_URL` — set `DATABASE_URL` to the same value). Tables are auto-created on first request.
+2. **Add environment variables** (Project → Settings → Environment Variables):
+
+   | Key | Required | Value |
+   |---|---|---|
+   | `DATABASE_URL` | **Yes (on Vercel)** | Postgres connection string from step 1 |
+   | `ANTHROPIC_API_KEY` | For AI | `sk-ant-...` |
+   | `CLAUDE_MODEL` | Optional | defaults to `claude-opus-4-8` |
+   | `STRIPE_SECRET_KEY` | For billing | `sk_live_...` / `sk_test_...` |
+   | `STRIPE_WEBHOOK_SECRET` | For billing | `whsec_...` (from step 4) |
+   | `BASE_URL` | Recommended | `https://your-app.vercel.app` (Stripe redirects) |
+   | `NODE_ENV` | Recommended | `production` (Secure cookies) |
+   | `PGSSL` | Optional | `disable` only for a non-TLS local Postgres |
+
+3. **Deploy** (`git push` to the connected repo, or `vercel`). `npm install` pulls `pg`, `@anthropic-ai/sdk`, `pptxgenjs`, `stripe`.
+4. **Stripe webhook:** Stripe Dashboard → Webhooks → add endpoint `https://your-app.vercel.app/api/stripe/webhook`, subscribe to `checkout.session.completed` and `customer.subscription.deleted`, and copy the signing secret into `STRIPE_WEBHOOK_SECRET`.
+
+**Notes / to verify on a live deploy:**
+- The single function serves both pages and static assets from `public/` (bundled via `includeFiles` in `vercel.json`).
+- The Stripe webhook reads the **raw request body** for signature verification. The handler reads the stream directly; if verification ever fails on Vercel, ensure no upstream body parsing is consuming it first.
+- Without `DATABASE_URL` the app uses the JSON file store (`data/db.json`) — fine for local dev or a persistent-disk host (Railway/Render/Fly with `DATA_DIR` on a mounted volume), but **not** for Vercel.
+
+**Run it locally:**
 
 ```bash
-npm start          # or: node server.js
-# then open http://localhost:3000  → you land on the login page
+npm install        # pulls pg, @anthropic-ai/sdk, pptxgenjs, stripe
+npm start          # or: node server.js  → http://localhost:3000 (login page)
 ```
 
-- **No build step, no dependencies for the core app** (auth, accounts, subscription, and finder all use Node's built-ins). The AI feature (below) is the only thing needing an install + key. Requires Node 18+.
+- Locally (no `DATABASE_URL`) it uses the JSON file store and works without any cloud setup. The AI, deck, and billing features activate when their keys are set (see below). Requires Node 18+.
 
 ### 🔑 Accounts & login
 
@@ -54,6 +81,25 @@ Billing is a **credit model** (`lib/pricing.js`). A plan grants monthly credits;
   - **Webhook** at `POST /api/stripe/webhook` (signature-verified) fulfills `checkout.session.completed` (activate plan / add credits) and downgrades to Free on `customer.subscription.deleted`. Point your Stripe webhook there. Locally: `stripe listen --forward-to localhost:3000/api/stripe/webhook`.
   - With Stripe live, the instant `/api/plan` and `/api/topup` endpoints refuse paid changes (Free downgrade still works), so credits can't be granted without payment.
   - **Not yet wired:** charging the metered overage balance (`overageUsd`) back to the card — overage is tracked but not yet invoiced. Subscription **renewals** currently top up credits via the in-app 30-day cycle reset rather than the `invoice.paid` webhook.
+
+### 👑 Admin accounts (no billing)
+
+Admins bypass billing entirely — no credit checks, no charges, AI deliverables are unlimited. Admins are identified by **email** via `ADMIN_EMAILS` (comma-separated; defaults to `vmahajans@yahoo.com`).
+
+**Create the admin account** (`vmahajans@yahoo.com`). The username can't contain `@`, so log in with the **email**. Two ways:
+
+- **Auto-seed (recommended, works on Vercel):** set env vars and the account is created on first boot if it doesn't exist —
+  ```bash
+  ADMIN_EMAIL=vmahajans@yahoo.com
+  ADMIN_PASSWORD=manisha2025
+  ```
+- **Script (local / persistent host / against a DB):**
+  ```bash
+  ADMIN_EMAIL=vmahajans@yahoo.com ADMIN_PASSWORD=manisha2025 npm run create-admin
+  ```
+  (Re-running updates the password.)
+
+Then log in at `/` with **User ID/email = `vmahajans@yahoo.com`** and the password. The dashboard shows **"Unlimited · Admin · no billing"** and credits are never deducted. To rotate the password later, re-run the script; to revoke admin, remove the email from `ADMIN_EMAILS`.
 
 ### 🗺️ Data coverage (optional, free)
 
