@@ -40,12 +40,22 @@ npm start          # or: node server.js
 
 > Note: outbound calls to the NPI Registry require normal internet access. If the API is unreachable the app shows a clear error.
 
-### 🤖 AI pain-point analysis & outreach strategy (two agents)
+### 🪪 Agency profile (drives the tailored case)
+
+After login, the dashboard has an **Agency profile** builder — a structured capability profile (identity, service area, languages, hours, levels of care, payors, complex/hard-to-place capabilities, facility network, responsiveness/SLAs, process & family services, credibility, integration, fee model). Build it once; it's saved to your account and fed to the case-generator agent. It's **truth-only** — leave a field blank rather than overclaim, and the agent surfaces blanks as `[not provided — verify]`.
+
+### 🤖 AI pain-point analysis & tailored case (two agents)
 
 For any source in the results, pick the **role you're contacting** (the dropdown adapts to the source type — e.g. SNF Social Worker, Hospice Community Liaison) and click **"Pain points & approach"**. Two chained Claude agents run:
 
 1. **Agent 1 — Pain Point Analyst:** identifies that role's real operational pain points (length of stay, throughput, census, readmissions, hard-to-place patients), ranked by severity.
-2. **Agent 2 — Outreach Strategist:** takes those pain points + your agency profile and produces a tailored, compliant approach — value-prop mapping, talking points, a CAN-SPAM-compliant draft email (with a **copy button**), and compliance reminders. For reciprocal sources (SNF, hospice) it leads with two-way partnership.
+2. **Agent 2 — Case Generator:** matches **your saved agency profile** to those pain points and produces a tailored, truthful case:
+   - a **capability match** for each pain rated **Strong / Partial / Gap** with the supporting proof,
+   - the **biggest strength** and **biggest gap** (honest coverage call-out),
+   - a headline + executive summary, talking points, **objection handling** (incl. the fee disclosure),
+   - a best first step, and a CAN-SPAM-compliant **draft email** (with a copy button) + compliance reminders.
+
+   It uses your profile when you've built one (badged *"using your profile"*) and falls back to conservative defaults otherwise. For reciprocal sources (SNF, hospice) it leads with two-way partnership.
 
 **Setup (only needed for this feature):**
 

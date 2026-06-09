@@ -40,6 +40,71 @@
         <p id="plan-status" class="plan-status" aria-live="polite"></p>
       </section>
 
+      <!-- Agency profile -->
+      <section class="panel" id="profile-panel">
+        <h2>Agency profile</h2>
+        <p class="subtitle">
+          Build this once. Our case-generator agent uses it to match your real
+          capabilities to each contact's pain points and write a tailored case.
+          Be truthful — leave a field blank rather than overclaim.
+        </p>
+
+        <form id="profile-form" autocomplete="off">
+          <label class="pf-label">
+            Identity
+            <span class="muted">legal name/DBA, founded, ownership, locations, CA referral-source registration, insurance, background-check policy</span>
+            <textarea id="p-identity" rows="3"></textarea>
+          </label>
+
+          <div class="two-col">
+            <label class="pf-label">
+              Service area <span class="muted">counties / cities / ZIP radius</span>
+              <input id="p-serviceArea" type="text" />
+            </label>
+            <label class="pf-label">
+              Languages served
+              <input id="p-languages" type="text" />
+            </label>
+          </div>
+
+          <label class="pf-label">
+            Hours / availability <span class="muted">24/7? after-hours? weekends?</span>
+            <input id="p-hours" type="text" />
+          </label>
+
+          <fieldset><legend>Levels of care placed</legend><div id="grp-levelsOfCare" class="checks"></div></fieldset>
+          <fieldset><legend>Payors handled</legend><div id="grp-payors" class="checks"></div></fieldset>
+          <fieldset><legend>Complex / hard-to-place capabilities</legend><div id="grp-complexCases" class="checks"></div></fieldset>
+          <fieldset><legend>Process & family services</legend><div id="grp-processServices" class="checks"></div></fieldset>
+
+          <label class="pf-label">
+            Facility network <span class="muted"># &amp; types of partners, density in your area, vetting / quality screening</span>
+            <textarea id="p-facilityNetwork" rows="2"></textarea>
+          </label>
+          <label class="pf-label">
+            Responsiveness &amp; SLAs <span class="muted">avg response time, time-to-placement, bedside assessment, same-day/weekend capacity</span>
+            <textarea id="p-responsiveness" rows="2"></textarea>
+          </label>
+          <label class="pf-label">
+            Credibility &amp; proof <span class="muted">years, placements/year, existing relationships, staff credentials, testimonials, measured outcomes — real only</span>
+            <textarea id="p-credibility" rows="2"></textarea>
+          </label>
+          <label class="pf-label">
+            Integration &amp; intake <span class="muted">e-referral platforms (CarePort/Ensocare/Aidin), CRM, no-PHI intake</span>
+            <textarea id="p-integration" rows="2"></textarea>
+          </label>
+          <label class="pf-label">
+            Fee model &amp; disclosures
+            <input id="p-feeModel" type="text" />
+          </label>
+
+          <div class="plan-footer">
+            <span id="profile-status" class="plan-status"></span>
+            <button id="save-profile" type="button" class="primary-btn">Save profile</button>
+          </div>
+        </form>
+      </section>
+
       <!-- Referral source finder (unlocked once coverage is saved) -->
       <section id="finder" class="panel" hidden>
         <h2>Find referral sources</h2>
@@ -94,6 +159,7 @@
     </footer>
 
     <script src="/dashboard.js"></script>
+    <script src="/profile.js"></script>
     <script src="/app.js"></script>
   </body>
 </html>

@@ -182,10 +182,15 @@ function renderStrategy(panel, role, data) {
     )
     .join('');
 
-  const valueHtml = (s.valueProps || [])
+  const matchHtml = (s.matches || [])
     .map(
-      (v) => `
-      <li><strong>${escapeHtml(v.painPoint)}</strong><br><span>${escapeHtml(v.howWeHelp)}</span></li>`
+      (m) => `
+      <li class="match">
+        <span class="strength strength-${escapeHtml((m.strength || '').toLowerCase())}">${escapeHtml(m.strength || '')}</span>
+        <strong>${escapeHtml(m.painPoint)}</strong>
+        <p>${escapeHtml(m.howWeHelp)}</p>
+        ${m.proof ? `<p class="proof"><em>Proof:</em> ${escapeHtml(m.proof)}</p>` : ''}
+      </li>`
     )
     .join('');
 
@@ -193,11 +198,21 @@ function renderStrategy(panel, role, data) {
     .map((t) => `<li>${escapeHtml(t)}</li>`)
     .join('');
 
+  const objectionHtml = (s.objections || [])
+    .map(
+      (o) => `
+      <li><strong>“${escapeHtml(o.objection)}”</strong><br><span>${escapeHtml(o.response)}</span></li>`
+    )
+    .join('');
+
   const complianceHtml = (s.complianceNotes || [])
     .map((c) => `<li>${escapeHtml(c)}</li>`)
     .join('');
 
   const email = s.emailDraft || {};
+  const profileBadge = data.usedProfile
+    ? '<span class="profile-badge ok">using your profile</span>'
+    : '<span class="profile-badge warn">generic — build your profile</span>';
 
   panel.innerHTML = `
     <div class="agent-block">
@@ -205,10 +220,20 @@ function renderStrategy(panel, role, data) {
       <ul class="pain-list">${painHtml || '<li>No pain points returned.</li>'}</ul>
     </div>
     <div class="agent-block">
-      <h4><span class="agent-tag agent-tag-2">Agent 2</span> Recommended approach</h4>
+      <h4><span class="agent-tag agent-tag-2">Agent 2</span> Tailored case ${profileBadge}</h4>
+      ${s.headline ? `<p class="headline">${escapeHtml(s.headline)}</p>` : ''}
       ${s.summary ? `<p class="strat-summary">${escapeHtml(s.summary)}</p>` : ''}
-      ${valueHtml ? `<h5>How we help</h5><ul class="value-list">${valueHtml}</ul>` : ''}
+      ${matchHtml ? `<h5>Capability match</h5><ul class="match-list">${matchHtml}</ul>` : ''}
+      ${
+        s.biggestStrength || s.biggestGap
+          ? `<div class="coverage">
+               ${s.biggestStrength ? `<p>✅ <strong>Biggest strength:</strong> ${escapeHtml(s.biggestStrength)}</p>` : ''}
+               ${s.biggestGap ? `<p>⚠️ <strong>Biggest gap:</strong> ${escapeHtml(s.biggestGap)}</p>` : ''}
+             </div>`
+          : ''
+      }
       ${talkingHtml ? `<h5>Talking points</h5><ul class="bullet">${talkingHtml}</ul>` : ''}
+      ${objectionHtml ? `<h5>Objection handling</h5><ul class="value-list">${objectionHtml}</ul>` : ''}
       ${s.suggestedFirstStep ? `<h5>Best first step</h5><p>${escapeHtml(s.suggestedFirstStep)}</p>` : ''}
       ${
         email.subject || email.body

@@ -22,6 +22,7 @@ const store = require('./lib/store');
 const authlib = require('./lib/auth');
 const plans = require('./lib/plans');
 const mailer = require('./lib/mailer');
+const profileLib = require('./lib/profile');
 
 const IS_PROD = process.env.NODE_ENV === 'production';
 
@@ -318,8 +319,9 @@ const STRATEGY_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
+    headline: { type: 'string' },
     summary: { type: 'string' },
-    valueProps: {
+    matches: {
       type: 'array',
       items: {
         type: 'object',
@@ -327,11 +329,27 @@ const STRATEGY_SCHEMA = {
         properties: {
           painPoint: { type: 'string' },
           howWeHelp: { type: 'string' },
+          strength: { type: 'string', enum: ['Strong', 'Partial', 'Gap'] },
+          proof: { type: 'string' },
         },
-        required: ['painPoint', 'howWeHelp'],
+        required: ['painPoint', 'howWeHelp', 'strength', 'proof'],
       },
     },
+    biggestStrength: { type: 'string' },
+    biggestGap: { type: 'string' },
     talkingPoints: { type: 'array', items: { type: 'string' } },
+    objections: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          objection: { type: 'string' },
+          response: { type: 'string' },
+        },
+        required: ['objection', 'response'],
+      },
+    },
     suggestedFirstStep: { type: 'string' },
     emailDraft: {
       type: 'object',
@@ -345,14 +363,30 @@ const STRATEGY_SCHEMA = {
     complianceNotes: { type: 'array', items: { type: 'string' } },
   },
   required: [
+    'headline',
     'summary',
-    'valueProps',
+    'matches',
+    'biggestStrength',
+    'biggestGap',
     'talkingPoints',
+    'objections',
     'suggestedFirstStep',
     'emailDraft',
     'complianceNotes',
   ],
 };
+
+// Fallback agency context when an agency hasn't built its profile yet.
+function fallbackAgencyContext() {
+  return [
+    `- Service area: ${AGENCY.serviceArea}`,
+    `- Levels of care placed: ${AGENCY.levelsOfCare.join('; ')}`,
+    `- Payors handled: ${AGENCY.payors.join('; ')}`,
+    `- Differentiators: ${AGENCY.differentiators.join('; ')}`,
+    `- Fee model (disclose this): ${AGENCY.feeModel}`,
+    `- NOTE: This agency has not completed its full profile yet — keep claims conservative and flag where more detail is needed.`,
+  ].join('\n');
+}
 
 async function runPainPointAnalyst(client, facility, role, facilityType) {
   const system = `You are an expert in U.S. post-acute and senior care operations — hospitals, skilled nursing facilities (SNFs), and hospice/home-health agencies — and the discharge, step-down, and placement workflows their staff face daily (length of stay, throughput, readmission penalties, census pressure, hard-to-place and complex-payor patients). Identify the genuine, role-specific operational pain points that a senior-placement referral agency could realistically help relieve. ${COMPLIANCE_RULES}`;
@@ -365,33 +399,32 @@ List 4-6 concrete pain points this specific role faces that are relevant to movi
   return callClaude(client, { system, user, schema: PAIN_POINTS_SCHEMA, maxTokens: 1500 });
 }
 
-async function runOutreachStrategist(client, facility, role, painPoints, facilityType) {
+async function runCaseGenerator(client, facility, role, painPoints, facilityType, agencyContext) {
   const reciprocity = facilityType.reciprocal
-    ? `This is a RECIPROCAL relationship: we can also refer families TO them when a senior needs skilled-nursing care or hospice. Lead with two-way partnership, not just taking referrals.`
-    : `Frame the value around their throughput metrics (length of stay, safe and timely discharge, avoidable days, readmissions).`;
-  const system = `You are a business-development strategist for a licensed-compliant California senior-placement / RCFE referral agency. You craft honest, value-first outreach to referral SOURCES (facility staff). You map the agency's real capabilities to the contact's pain points and never overpromise. ${reciprocity} ${COMPLIANCE_RULES}`;
-  const agency = `Our agency profile:
-- Name: ${AGENCY.agencyName}
-- Service area: ${AGENCY.serviceArea}
-- Levels of care we place: ${AGENCY.levelsOfCare.join('; ')}
-- Payors we handle: ${AGENCY.payors.join('; ')}
-- Differentiators: ${AGENCY.differentiators.join('; ')}
-- Fee model (disclose this): ${AGENCY.feeModel}`;
-  const user = `${agency}
+    ? `This is a RECIPROCAL relationship: the agency can also refer families TO them when a senior needs skilled-nursing care or hospice. Lead with two-way partnership, not just taking referrals.`
+    : `Frame value around their throughput metrics (length of stay, safe and timely discharge, avoidable days, readmissions).`;
+  const system = `You are a healthcare business-development strategist for a licensed-compliant California senior-placement / RCFE referral agency. You match the agency's REAL capabilities (from its profile below) to a target organization's discharge/placement pain points and produce a truthful, evidence-based case. ${reciprocity}
+TRUTH ONLY: use only capabilities present in the agency profile. Never invent statistics, certifications, facility counts, partners, or outcomes. Where a profile field says "[not provided — verify]", do not claim it. Where the agency cannot address a pain, rate it a Gap honestly — do not stretch a weak capability into Strong. Credibility is the product. ${COMPLIANCE_RULES}`;
+  const user = `AGENCY PROFILE (agency name: ${AGENCY.agencyName}):
+${agencyContext}
 
-Contact: ${role} at ${facility.name} — a ${facilityType.label} organization (${[facility.city, facility.state].filter(Boolean).join(', ')}).
+TARGET CONTACT: ${role} at ${facility.name} — a ${facilityType.label} organization (${[facility.city, facility.state].filter(Boolean).join(', ')}).
 
-Pain points identified for this contact:
+PAIN POINTS identified for this contact:
 ${painPoints.map((p, i) => `${i + 1}. [${p.severity}] ${p.title} — ${p.description}`).join('\n')}
 
-Produce the best approach to make a case for our services:
-- summary: 1-2 sentence overall angle for this contact.
-- valueProps: map each major pain point to specifically how we help (use our differentiators honestly).
-- talkingPoints: 4-6 crisp points for a first meeting or call, framed around what THIS role cares about${facilityType.reciprocal ? ' (including the reciprocal referrals we can send them)' : ''}.
-- suggestedFirstStep: the single best opening move (e.g., warm intro, a lunch-and-learn offer, capabilities sheet drop) and why.
-- emailDraft: a short, CAN-SPAM-compliant first-contact email (subject + body) from our agency to this contact. Identify the sender, be specific to their pains, offer value, no hard sell.
-- complianceNotes: reminders specific to this outreach (PHI, vendor registration, required disclosures).`;
-  return callClaude(client, { system, user, schema: STRATEGY_SCHEMA, maxTokens: 2600 });
+Produce a tailored, truthful case:
+- headline: one line tying the agency's #1 REAL strength to this contact's #1 pain.
+- summary: a 3-4 sentence executive summary — who we are, the specific problems we take off their plate, why us over the status quo.
+- matches: for EACH pain point, an object {painPoint, howWeHelp (cite the specific profile capability), strength ("Strong" | "Partial" | "Gap"), proof (the concrete profile evidence, or note what's missing)}. Rate Strong only when a real, provided capability directly resolves the pain; mark Gap honestly when the profile doesn't cover it.
+- biggestStrength: one line — the agency's single strongest match.
+- biggestGap: one line — the most important pain the agency cannot yet address (or "[none material]" if fully covered).
+- talkingPoints: 4-6 crisp points for a first meeting, framed around what THIS role cares about${facilityType.reciprocal ? ' (including reciprocal referrals we can send them)' : ''}.
+- objections: the 3 likeliest objections this contact would raise (e.g., "we already use a national referral site", "how are you paid / is this unbiased", "can you really place our hardest cases?") with honest {objection, response} — include the fee disclosure.
+- suggestedFirstStep: the single best low-friction next step (e.g., free in-service / lunch-and-learn, sign a referral agreement, pilot on the next few hard-to-place discharges) and why.
+- emailDraft: a short, CAN-SPAM-compliant first-contact email (subject + body) to this contact. Identify the sender, be specific to their pains, offer value, no hard sell.
+- complianceNotes: reminders specific to this outreach (PHI/consent, vendor registration, California referral-source disclosures).`;
+  return callClaude(client, { system, user, schema: STRATEGY_SCHEMA, maxTokens: 3500 });
 }
 
 async function handleStrategy(req, res) {
@@ -412,12 +445,17 @@ async function handleStrategy(req, res) {
     return sendJson(res, 400, { error: 'Choose a role to approach.' });
   }
 
+  // Use the agency's own profile if they've built one; otherwise fall back.
+  const user = currentUser(req);
+  const usedProfile = !!(user && user.profile && !profileLib.isEmpty(user.profile));
+  const agencyContext = usedProfile ? profileLib.toContext(user.profile) : fallbackAgencyContext();
+
   try {
     const client = getAnthropicClient();
-    // Agent 1 → pain points, then Agent 2 → approach built on them.
+    // Agent 1 → pain points, then Agent 2 → profile-matched case built on them.
     const { painPoints } = await runPainPointAnalyst(client, facility, role, facilityType);
-    const strategy = await runOutreachStrategist(client, facility, role, painPoints || [], facilityType);
-    return sendJson(res, 200, { facility: facility.name, role, painPoints, strategy });
+    const strategy = await runCaseGenerator(client, facility, role, painPoints || [], facilityType, agencyContext);
+    return sendJson(res, 200, { facility: facility.name, role, painPoints, strategy, usedProfile });
   } catch (err) {
     if (err instanceof StrategyUnavailable) {
       return sendJson(res, 503, { error: err.message, needsSetup: true });
@@ -611,6 +649,24 @@ async function handleSetSubscription(req, res) {
   return sendJson(res, 200, { subscription });
 }
 
+// ---- Agency profile -------------------------------------------------------
+
+function handleGetProfile(req, res) {
+  const user = currentUser(req);
+  if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
+  return sendJson(res, 200, { profile: user.profile || null, options: profileLib.OPTIONS });
+}
+
+async function handleSetProfile(req, res) {
+  const user = currentUser(req);
+  if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
+  const body = await readJsonBody(req).catch(() => null);
+  if (!body) return sendJson(res, 400, { error: 'Invalid request.' });
+  const profile = profileLib.sanitize(body);
+  store.updateUser(user.id, { profile });
+  return sendJson(res, 200, { profile });
+}
+
 function serveStatic(req, res, pathname) {
   let rel = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
   // Prevent path traversal.
@@ -660,6 +716,10 @@ const server = http.createServer((req, res) => {
   if (pathname === '/api/plans') return handlePlans(req, res);
   if (pathname === '/api/subscription' && method === 'GET') return handleGetSubscription(req, res);
   if (pathname === '/api/subscription' && method === 'POST') return handleSetSubscription(req, res);
+
+  // --- Agency profile (auth) ---
+  if (pathname === '/api/profile' && method === 'GET') return handleGetProfile(req, res);
+  if (pathname === '/api/profile' && method === 'POST') return handleSetProfile(req, res);
 
   // --- Data API (requires login + an active subscription) ---
   if (pathname === '/api/facility-types') {
