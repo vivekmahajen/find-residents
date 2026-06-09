@@ -101,6 +101,16 @@ Admins bypass billing entirely — no credit checks, no charges, AI deliverables
 
 Then log in at `/` with **User ID/email = `vmahajans@yahoo.com`** and the password. The dashboard shows **"Unlimited · Admin · no billing"** and credits are never deducted. To rotate the password later, re-run the script; to revoke admin, remove the email from `ADMIN_EMAILS`.
 
+### 🔒 Privacy-safe client profile renderer
+
+Turn a raw client intake into a clean, **matching-ready** card with sensitive identifiers redacted. Enter/paste a record, pick a **viewer role** and **output mode**, and get a minimized profile (`POST /api/client-profile`).
+
+- **Deterministic redaction (no LLM in the redaction path):** SSNs, financial data (cards/accounts/routing), government IDs (DL/passport/A-number), and medical IDs (MRN/Medi-Cal/Medicare/MBI/policy) are redacted — **including inside free-text notes** — and full **date of birth is reduced to age**. Over-redaction is the deliberate failure mode.
+- **Role-gated contact** (`full` / `matching_only` / `partner_facility`): masks phone to last 2 digits and email local part for matching, and hides direct contact entirely for partner facilities ("via agency").
+- **Data minimization:** only the placement-relevant schema fields are shown; special-category data (race, religion, etc.) is omitted unless stated as a care *preference* (e.g., "faith-based home") or functional need.
+- **Transparency footer** lists every sensitive category that was present but withheld.
+- **Stateless / no PHI stored:** the record is processed in-memory and discarded — nothing is persisted. (A saved client roster would require encryption-at-rest + access controls; deliberately out of scope.) This reduces exposure but does not replace your HIPAA/CCPA obligations.
+
 ### 🗺️ Data coverage (optional, free)
 
 County selection is now a free **data-coverage preference** (which CA counties you focus on) — it no longer affects billing and doesn't gate the tools.

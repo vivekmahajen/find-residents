@@ -134,6 +134,114 @@
         </form>
       </section>
 
+      <!-- Privacy-safe client profile renderer -->
+      <section class="panel" id="client-panel">
+        <h2>Client profile <span class="muted">(privacy-safe)</span></h2>
+        <p class="subtitle">
+          Turn a raw intake into a clean, matching-ready card. Sensitive
+          identifiers (SSN, financial, government &amp; medical IDs) are redacted
+          — including inside notes — and full date of birth is reduced to age.
+          <strong>Nothing here is saved</strong>; it's rendered and discarded.
+        </p>
+
+        <form id="client-form" autocomplete="off">
+          <div class="two-col">
+            <label class="pf-label">Viewer role
+              <select id="cl-viewerRole">
+                <option value="matching_only">Matching only (masked contact)</option>
+                <option value="full">Full (staff with need-to-know)</option>
+                <option value="partner_facility">Partner facility (no contact)</option>
+              </select>
+            </label>
+            <label class="pf-label">Output mode
+              <select id="cl-outputMode">
+                <option value="profile">Profile card</option>
+                <option value="export">Matching export</option>
+                <option value="table">Table row</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="two-col">
+            <label class="pf-label">Client reference / initials <input id="cl-reference" type="text" /></label>
+            <label class="pf-label">Name <input id="cl-name" type="text" /></label>
+          </div>
+          <div class="two-col">
+            <label class="pf-label">Gender / sex <input id="cl-gender" type="text" /></label>
+            <label class="pf-label">Date of birth <span class="muted">(shown as age only)</span> <input id="cl-dob" type="text" placeholder="MM/DD/YYYY or year" /></label>
+          </div>
+
+          <div class="two-col">
+            <label class="pf-label">Phone <input id="cl-phone" type="text" /></label>
+            <label class="pf-label">Email <input id="cl-email" type="text" /></label>
+          </div>
+          <label class="pf-label">Mailing area / city <input id="cl-mailingArea" type="text" /></label>
+
+          <div class="two-col">
+            <label class="pf-label">Decision-maker name <input id="cl-contactName" type="text" /></label>
+            <label class="pf-label">Relationship <input id="cl-contactRelationship" type="text" /></label>
+          </div>
+          <label class="pf-label">Decision-maker phone <input id="cl-contactPhone" type="text" /></label>
+
+          <label class="pf-label">Preferred location <span class="muted">(city / county / ZIP / radius)</span> <input id="cl-location" type="text" /></label>
+
+          <div class="two-col">
+            <label class="pf-label">Care-home preference
+              <select id="cl-carePreferenceType">
+                <option value="">—</option>
+                <option>Assisted living</option>
+                <option>Board &amp; care (RCFE)</option>
+                <option>Memory care</option>
+                <option>Independent living</option>
+                <option>Other</option>
+              </select>
+            </label>
+            <label class="pf-label">Desired features <span class="muted">(bilingual, faith-based, pet-friendly…)</span> <input id="cl-careFeatures" type="text" /></label>
+          </div>
+
+          <div class="two-col">
+            <label class="pf-label">Room type
+              <select id="cl-roomType">
+                <option value="">—</option>
+                <option>Private</option>
+                <option>Shared</option>
+                <option>Studio</option>
+                <option>One-bedroom</option>
+                <option>Other</option>
+              </select>
+            </label>
+            <label class="pf-label">Language preference <input id="cl-language" type="text" /></label>
+          </div>
+
+          <div class="three-col">
+            <label class="pf-label">Monthly budget <input id="cl-budgetAmount" type="text" /></label>
+            <label class="pf-label">Payor
+              <select id="cl-payor">
+                <option value="">—</option>
+                <option>Private pay</option>
+                <option>LTC insurance</option>
+                <option>Medi-Cal</option>
+                <option>Assisted Living Waiver (ALW)</option>
+                <option>VA</option>
+              </select>
+            </label>
+            <label class="pf-label">Share of cost <input id="cl-shareOfCost" type="text" /></label>
+          </div>
+
+          <label class="pf-label">Level-of-care needs <span class="muted">(mobility/transfer, ADLs, memory care, oxygen/dialysis, behavioral)</span> <input id="cl-needs" type="text" /></label>
+          <label class="pf-label">Timeline / urgency <input id="cl-timeline" type="text" /></label>
+          <label class="pf-label">Notes <span class="muted">(free text — sensitive items are scrubbed)</span> <textarea id="cl-notes" rows="2"></textarea></label>
+          <label class="pf-label">Raw intake paste <span class="muted">(optional — any pasted text, scrubbed)</span> <textarea id="cl-raw" rows="2"></textarea></label>
+
+          <div class="plan-footer">
+            <span id="client-status" class="plan-status"></span>
+            <button id="render-client" type="button" class="primary-btn">Render safe profile</button>
+          </div>
+        </form>
+
+        <div id="client-result" class="client-result" hidden></div>
+      </section>
+
       <!-- Referral source finder -->
       <section id="finder" class="panel">
         <h2>Find referral sources</h2>
@@ -186,6 +294,7 @@
     <script src="/pricing.js"></script>
     <script src="/dashboard.js"></script>
     <script src="/profile.js"></script>
+    <script src="/clients.js"></script>
     <script src="/app.js"></script>
   </body>
 </html>

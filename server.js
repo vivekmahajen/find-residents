@@ -27,6 +27,7 @@ const deckLib = require('./lib/deck');
 const pricing = require('./lib/pricing');
 const stripeLib = require('./lib/stripe');
 const adminLib = require('./lib/admin');
+const redact = require('./lib/redact');
 
 const IS_PROD = process.env.NODE_ENV === 'production';
 
@@ -956,6 +957,17 @@ async function handleStripeWebhook(req, res) {
   res.end('{"received":true}');
 }
 
+// ---- Privacy-safe client profile renderer (stateless; nothing persisted) ----
+
+async function handleClientProfile(req, res) {
+  const user = await currentUser(req);
+  if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
+  const body = await readJsonBody(req).catch(() => null);
+  if (!body) return sendJson(res, 400, { error: 'Invalid request.' });
+  const result = redact.renderProfile(body.record || {}, body.viewerRole, body.outputMode);
+  return sendJson(res, 200, result);
+}
+
 function serveStatic(req, res, pathname) {
   let rel = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
   // Prevent path traversal.
@@ -1009,6 +1021,12 @@ async function route(req, res) {
   // --- Agency profile (auth) ---
   if (pathname === '/api/profile' && method === 'GET') return handleGetProfile(req, res);
   if (pathname === '/api/profile' && method === 'POST') return handleSetProfile(req, res);
+
+  // --- Privacy-safe client profile renderer (auth, free, stateless) ---
+  if (pathname === '/api/client-profile' && method === 'POST') {
+    if (!(await currentUser(req))) return sendJson(res, 401, { error: 'Please log in.' });
+    return handleClientProfile(req, res);
+  }
 
   // --- Credit pricing & account ---
   if (pathname === '/api/pricing') return handlePricing(req, res); // public
