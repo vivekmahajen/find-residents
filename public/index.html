@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hospital Finder — Referral Source Discovery</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <h1>🏥 Hospital Finder</h1>
+      <p class="subtitle">
+        Find hospitals by city or ZIP to build your Tier&nbsp;1 referral-source
+        pipeline. Data from the federal NPI Registry (NPPES).
+      </p>
+    </header>
+
+    <main>
+      <form id="search-form" class="search-card" autocomplete="off">
+        <div class="field field-grow">
+          <label for="location">City or ZIP code</label>
+          <input
+            id="location"
+            name="location"
+            type="text"
+            placeholder="e.g. Sacramento  or  95814"
+            required
+          />
+        </div>
+        <div class="field">
+          <label for="state">State</label>
+          <select id="state" name="state"></select>
+          <span class="hint">Ignored when searching by ZIP</span>
+        </div>
+        <button type="submit" id="search-btn">Search</button>
+      </form>
+
+      <section id="status" class="status" aria-live="polite"></section>
+      <section id="results" class="results"></section>
+    </main>
+
+    <footer class="site-footer">
+      <p>
+        <strong>Compliance:</strong> Results are public organizational data only
+        (name, address, phone, type) — no patient data / PHI. Approach hospitals
+        through their <em>Case Management / Discharge Planning</em> department, and
+        verify all contact details on the hospital's official site before outreach.
+        Respect each facility's vendor/solicitation policy.
+      </p>
+      <p class="muted">
+        Source: NPI Registry (NPPES), U.S. Centers for Medicare &amp; Medicaid
+        Services. Not legal advice.
+      </p>
+    </footer>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

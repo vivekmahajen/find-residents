@@ -4,6 +4,27 @@ A playbook for building a repeatable pipeline of residents/clients, plus a compr
 
 ---
 
+## 🏥 Hospital Finder app (included in this repo)
+
+A small web app that turns a **city or ZIP code** into a list of nearby **hospitals** — your Tier 1 referral sources (see §2). Useful for fast Source Discovery.
+
+**Run it:**
+
+```bash
+npm start          # or: node server.js
+# then open http://localhost:3000
+```
+
+- **No dependencies, no build step, no API key.** Requires Node 18+.
+- **Data source:** the free federal **NPI Registry (NPPES)** API. Live, nationwide.
+- **How it works:** a tiny Node server (`server.js`) proxies the NPPES API (which has no CORS headers), filters to hospital taxonomies, de-duplicates, caches for 10 min, and serves the frontend in `public/`.
+- **Search by:** city (with a state selector, default CA) or a 5-digit ZIP. County input is not yet supported.
+- **Returns only public organizational data** — hospital name, address, phone, type, NPI, and a map link. **No patient data / PHI is ever requested or stored.** Approach hospitals through their *Case Management / Discharge Planning* department, and verify every contact detail on the hospital's official site before outreach.
+
+> Note: outbound calls to the NPI Registry require normal internet access. If the API is unreachable the app shows a clear error.
+
+---
+
 ## 0. Ground rules — read these first (they protect your license, reputation, and revenue)
 
 These are operating guardrails, not legal advice. Have a California elder-law / healthcare attorney review your referral agreements, disclosure forms, privacy policy, and outreach before you launch.
