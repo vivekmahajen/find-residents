@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "latest",
+    "pg": "latest",
     "pptxgenjs": "latest",
     "stripe": "latest"
   },
