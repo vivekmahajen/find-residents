@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Dashboard — Referral Source Finder</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="app-bar">
+      <span class="app-bar-title">🏥 Referral Source Finder</span>
+      <span class="app-bar-spacer"></span>
+      <span id="who" class="who"></span>
+      <button id="logout-btn" type="button" class="link-btn">Log out</button>
+    </header>
+
+    <main>
+      <!-- Plan & credits -->
+      <section class="panel" id="plan-panel">
+        <div class="plan-head">
+          <div>
+            <h2>Plan &amp; credits</h2>
+            <p class="subtitle">
+              You spend credits when the AI produces deliverables. A tailored case
+              costs <strong id="cost-document">10</strong> credits; a PowerPoint
+              costs <strong id="cost-deck">30</strong>. Searching is free.
+            </p>
+          </div>
+          <div id="balance" class="balance">…</div>
+        </div>
+
+        <label class="annual-toggle">
+          <input type="checkbox" id="annual-toggle" />
+          <span>Pay annually <span class="muted">(−20%)</span></span>
+        </label>
+
+        <div id="tier-ladder" class="tier-ladder"></div>
+
+        <h3>Top-up credits <span class="muted">(carry over while subscribed)</span></h3>
+        <div id="topups" class="topups"></div>
+
+        <details class="pricing-faq">
+          <summary>How credits work</summary>
+          <div id="faq-body"></div>
+        </details>
+
+        <p id="account-status" class="plan-status" aria-live="polite"></p>
+      </section>
+
+      <!-- Data coverage (optional) -->
+      <section class="panel">
+        <h2>Data coverage <span class="muted">(optional)</span></h2>
+        <p class="subtitle">
+          Choose the California counties whose referral-source data you focus on.
+          This is a free preference — it doesn't affect billing.
+        </p>
+
+        <div class="field">
+          <label for="sub-state">State</label>
+          <select id="sub-state"></select>
+        </div>
+
+        <h3>Counties <span id="county-count" class="muted"></span></h3>
+        <div id="counties" class="county-grid" aria-label="County selection"></div>
+
+        <div class="plan-footer">
+          <button id="save-plan" type="button" class="primary-btn" disabled>Save coverage</button>
+        </div>
+        <p id="plan-status" class="plan-status" aria-live="polite"></p>
+      </section>
+
+      <!-- Agency profile -->
+      <section class="panel" id="profile-panel">
+        <h2>Agency profile</h2>
+        <p class="subtitle">
+          Build this once. Our case-generator agent uses it to match your real
+          capabilities to each contact's pain points and write a tailored case.
+          Be truthful — leave a field blank rather than overclaim.
+        </p>
+
+        <form id="profile-form" autocomplete="off">
+          <label class="pf-label">
+            Identity
+            <span class="muted">legal name/DBA, founded, ownership, locations, CA referral-source registration, insurance, background-check policy</span>
+            <textarea id="p-identity" rows="3"></textarea>
+          </label>
+
+          <div class="two-col">
+            <label class="pf-label">
+              Service area <span class="muted">counties / cities / ZIP radius</span>
+              <input id="p-serviceArea" type="text" />
+            </label>
+            <label class="pf-label">
+              Languages served
+              <input id="p-languages" type="text" />
+            </label>
+          </div>
+
+          <label class="pf-label">
+            Hours / availability <span class="muted">24/7? after-hours? weekends?</span>
+            <input id="p-hours" type="text" />
+          </label>
+
+          <fieldset><legend>Levels of care placed</legend><div id="grp-levelsOfCare" class="checks"></div></fieldset>
+          <fieldset><legend>Payors handled</legend><div id="grp-payors" class="checks"></div></fieldset>
+          <fieldset><legend>Complex / hard-to-place capabilities</legend><div id="grp-complexCases" class="checks"></div></fieldset>
+          <fieldset><legend>Process & family services</legend><div id="grp-processServices" class="checks"></div></fieldset>
+
+          <label class="pf-label">
+            Facility network <span class="muted"># &amp; types of partners, density in your area, vetting / quality screening</span>
+            <textarea id="p-facilityNetwork" rows="2"></textarea>
+          </label>
+          <label class="pf-label">
+            Responsiveness &amp; SLAs <span class="muted">avg response time, time-to-placement, bedside assessment, same-day/weekend capacity</span>
+            <textarea id="p-responsiveness" rows="2"></textarea>
+          </label>
+          <label class="pf-label">
+            Credibility &amp; proof <span class="muted">years, placements/year, existing relationships, staff credentials, testimonials, measured outcomes — real only</span>
+            <textarea id="p-credibility" rows="2"></textarea>
+          </label>
+          <label class="pf-label">
+            Integration &amp; intake <span class="muted">e-referral platforms (CarePort/Ensocare/Aidin), CRM, no-PHI intake</span>
+            <textarea id="p-integration" rows="2"></textarea>
+          </label>
+          <label class="pf-label">
+            Fee model &amp; disclosures
+            <input id="p-feeModel" type="text" />
+          </label>
+
+          <div class="plan-footer">
+            <span id="profile-status" class="plan-status"></span>
+            <button id="save-profile" type="button" class="primary-btn">Save profile</button>
+          </div>
+        </form>
+      </section>
+
+      <!-- Referral source finder -->
+      <section id="finder" class="panel">
+        <h2>Find referral sources</h2>
+        <p class="subtitle">
+          Search hospitals, SNFs, and hospice/home-health agencies by city or ZIP.
+          Data from the federal NPI Registry (NPPES).
+        </p>
+
+        <form id="search-form" class="search-card" autocomplete="off">
+          <div class="field">
+            <label for="facility-type">Source type</label>
+            <select id="facility-type" name="facility-type"></select>
+          </div>
+          <div class="field field-grow">
+            <label for="location">City or ZIP code</label>
+            <input
+              id="location"
+              name="location"
+              type="text"
+              placeholder="e.g. Sacramento  or  95814"
+              required
+            />
+          </div>
+          <div class="field">
+            <label for="state">State</label>
+            <select id="state" name="state"></select>
+            <span class="hint">Ignored when searching by ZIP</span>
+          </div>
+          <button type="submit" id="search-btn">Search</button>
+        </form>
+
+        <section id="status" class="status" aria-live="polite"></section>
+        <section id="results" class="results"></section>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <p>
+        <strong>Compliance:</strong> Results are public organizational data only
+        (name, address, phone, type) — no patient data / PHI. Verify all contact
+        details on the organization's official site, and respect each facility's
+        vendor/solicitation policy before outreach.
+      </p>
+      <p class="muted">
+        Source: NPI Registry (NPPES), U.S. Centers for Medicare &amp; Medicaid
+        Services. Not legal advice.
+      </p>
+    </footer>
+
+    <script src="/pricing.js"></script>
+    <script src="/dashboard.js"></script>
+    <script src="/profile.js"></script>
+    <script src="/app.js"></script>
+  </body>
+</html>

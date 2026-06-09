@@ -1,0 +1,18 @@
+{
+  "name": "find-residents-hospital-finder",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Find hospital referral sources by city or ZIP for a California senior placement / RCFE referral agency. Data: federal NPI Registry (NPPES).",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "latest",
+    "pptxgenjs": "latest",
+    "stripe": "latest"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

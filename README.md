@@ -4,6 +4,109 @@ A playbook for building a repeatable pipeline of residents/clients, plus a compr
 
 ---
 
+## 🏥 Referral Source Finder app (included in this repo)
+
+A web app with **accounts and a county-based subscription**, gating a finder that turns a **city or ZIP code** into a list of nearby **Tier 1 referral sources** — **hospitals**, **skilled nursing facilities (SNFs)**, and **hospice & home-health agencies** (see §2–§3).
+
+**Run it:**
+
+```bash
+npm start          # or: node server.js
+# then open http://localhost:3000  → you land on the login page
+```
+
+- **No build step, no dependencies for the core app** (auth, accounts, subscription, and finder all use Node's built-ins). The AI feature (below) is the only thing needing an install + key. Requires Node 18+.
+
+### 🔑 Accounts & login
+
+- **Login is the landing page.** New users create an account with a **User ID**, a valid **email**, and a **password** (min 8 chars, letter + number). Standard flows included: log in (by User ID *or* email), log out, and **forgot/reset password**. Everyone starts on the **Free** plan.
+- **How it's built:** passwords are hashed with Node's `crypto` **scrypt** (salted, constant-time compare); sessions are **HttpOnly cookies** backed by a small **JSON file store** (`data/db.json`, gitignored, atomic writes — swap for SQLite/Postgres later). Set `NODE_ENV=production` to add the `Secure` cookie flag.
+- **Forgot-password email:** no email provider is wired up, so the reset link is **logged to the server console** (and shown on-screen in dev for testing). For production, implement `lib/mailer.js → sendPasswordReset()` with a real provider and remove the dev link.
+
+### 💳 Credit-based pricing (plans + credits)
+
+Billing is a **credit model** (`lib/pricing.js`). A plan grants monthly credits; the AI **deliverables consume credits** (searching is free):
+
+| Plan | Monthly | Annual (−20%) | Credits | ~Decks | Eff. $/deck |
+|---|---|---|---|---|---|
+| Free | $0 | — | 30 (one-time) | ~1 | — |
+| Starter | $25 | $20/mo | 300 | ~10 | $2.50 |
+| Pro | $59 | $47/mo | 750 | ~25 | $2.36 |
+| Business | $149 | $119/mo | 2,000 | ~66 | $2.24 |
+| Scale | $299 | $239/mo | 4,200 | ~140 | $2.14 |
+| Enterprise | custom | — | custom | — | — |
+
+- **Per-action cost** (at $0.10/credit): tailored case (a *Document*) **10 cr** in-plan / 15 overage; PowerPoint deck **30 cr** / 45; (Spreadsheet 15/23, Deep research 60/90 are in the catalog for future actions).
+- **Overage:** on paid plans, work past your monthly credits is metered (`$ = overage credits × $0.10`, accrued as owed); the **Free plan stops** when credits run out (HTTP 402 → upgrade/top-up).
+- **Top-up packs** (250/$25, 1,000/$90, 5,000/$400) carry over while subscribed; plan credits reset each cycle.
+- The dashboard shows your **balance**, the **tier ladder** (with an annual toggle and effective $/deck), top-ups, and a credits FAQ. Each AI button shows its credit cost and the balance updates after each action.
+- **Endpoints:** `GET /api/pricing` (public model), `GET /api/account`, `POST /api/plan`, `POST /api/topup`. Credits are enforced and charged server-side in `/api/strategy` and `/api/deck`.
+- **Payments — Stripe (optional).** When configured, paid plans and top-ups go through **Stripe Checkout** (hosted; no card data touches this app) and credits are granted only after Stripe confirms payment via webhook. When *not* configured, the app falls back to instant (no-charge) plan changes so it still runs locally.
+
+  Enable it by setting:
+  ```bash
+  npm install stripe
+  export STRIPE_SECRET_KEY=sk_test_...
+  export STRIPE_WEBHOOK_SECRET=whsec_...        # from `stripe listen` or the dashboard
+  export BASE_URL=https://your-app.example.com  # optional; else derived from the request
+  ```
+  - **Plans** → subscription Checkout (`/api/checkout/plan`); monthly or annual (−20%, billed yearly). **Top-ups** → one-time Checkout (`/api/checkout/topup`). Prices are built inline from `lib/pricing.js`, so no Stripe dashboard Price objects need pre-creating.
+  - **Webhook** at `POST /api/stripe/webhook` (signature-verified) fulfills `checkout.session.completed` (activate plan / add credits) and downgrades to Free on `customer.subscription.deleted`. Point your Stripe webhook there. Locally: `stripe listen --forward-to localhost:3000/api/stripe/webhook`.
+  - With Stripe live, the instant `/api/plan` and `/api/topup` endpoints refuse paid changes (Free downgrade still works), so credits can't be granted without payment.
+  - **Not yet wired:** charging the metered overage balance (`overageUsd`) back to the card — overage is tracked but not yet invoiced. Subscription **renewals** currently top up credits via the in-app 30-day cycle reset rather than the `invoice.paid` webhook.
+
+### 🗺️ Data coverage (optional, free)
+
+County selection is now a free **data-coverage preference** (which CA counties you focus on) — it no longer affects billing and doesn't gate the tools.
+- **Data source:** the free federal **NPI Registry (NPPES)** API. Live, nationwide.
+- **How it works:** a tiny Node server (`server.js`) handles auth + subscriptions and proxies the NPPES API (which has no CORS headers), filtering to the right NPI taxonomies for the chosen **source type**, de-duplicating, caching for 10 min, and serving the `public/` frontend (`index.html` = login, `app.html` = dashboard).
+- **Source types:** Hospitals · Skilled Nursing (SNF) · Hospice & Home Health. Each maps to its own taxonomies and the staff roles you'd approach; SNF and hospice are flagged **reciprocal** (you can refer families to them too), which the strategist leans into.
+- **Search by:** city (with a state selector, default CA) or a 5-digit ZIP. County input is not yet supported.
+- **Returns only public organizational data** — hospital name, address, phone, type, NPI, and a map link. **No patient data / PHI is ever requested or stored.** Approach hospitals through their *Case Management / Discharge Planning* department, and verify every contact detail on the hospital's official site before outreach.
+
+> Note: outbound calls to the NPI Registry require normal internet access. If the API is unreachable the app shows a clear error.
+
+### 🪪 Agency profile (drives the tailored case)
+
+After login, the dashboard has an **Agency profile** builder — a structured capability profile (identity, service area, languages, hours, levels of care, payors, complex/hard-to-place capabilities, facility network, responsiveness/SLAs, process & family services, credibility, integration, fee model). Build it once; it's saved to your account and fed to the case-generator agent. It's **truth-only** — leave a field blank rather than overclaim, and the agent surfaces blanks as `[not provided — verify]`.
+
+### 🤖 AI pain-point analysis & tailored case (two agents)
+
+For any source in the results, pick the **role you're contacting** (the dropdown adapts to the source type — e.g. SNF Social Worker, Hospice Community Liaison) and click **"Pain points & approach"**. Two chained Claude agents run:
+
+1. **Agent 1 — Pain Point Analyst:** identifies that role's real operational pain points (length of stay, throughput, census, readmissions, hard-to-place patients), ranked by severity.
+2. **Agent 2 — Case Generator:** matches **your saved agency profile** to those pain points and produces a tailored, truthful case:
+   - a **capability match** for each pain rated **Strong / Partial / Gap** with the supporting proof,
+   - the **biggest strength** and **biggest gap** (honest coverage call-out),
+   - a headline + executive summary, talking points, **objection handling** (incl. the fee disclosure),
+   - a best first step, and a CAN-SPAM-compliant **draft email** (with a copy button) + compliance reminders.
+
+   It uses your profile when you've built one (badged *"using your profile"*) and falls back to conservative defaults otherwise. For reciprocal sources (SNF, hospice) it leads with two-way partnership.
+
+   The case also includes an **illustrative savings estimate** — the agent supplies conservative, clearly-labeled industry-benchmark inputs (avoidable bed-days per hard placement × hard-to-place cases/month × cost per inpatient day) and the server computes the monthly/annual totals deterministically, always framed as an estimate to validate (never guaranteed).
+
+### 📊 PowerPoint pitch deck
+
+Below each generated case, **"Build PowerPoint"** downloads a tailored `.pptx` proposal for that hospital: title, executive summary, their pain points, the capability **match (Strong/Partial/Gap)**, the **estimated-savings** slide, why-us + objection handling, and the ask + compliance disclosures.
+
+- Generated server-side with **`pptxgenjs`** (lazy-loaded — `npm install pptxgenjs`); the deck reuses the already-generated case, so it makes **no extra model call**.
+- Like the AI feature, it degrades gracefully: if `pptxgenjs` isn't installed it returns a clear "run npm install" message instead of failing.
+
+**Setup (only needed for this feature):**
+
+```bash
+npm install @anthropic-ai/sdk pptxgenjs   # SDK = AI case generator; pptxgenjs = PowerPoint export
+export ANTHROPIC_API_KEY=sk-ant-...        # the source search itself needs neither
+npm start
+```
+
+- Built on the official Anthropic SDK, model `claude-opus-4-8` (override with `CLAUDE_MODEL`), with structured JSON outputs.
+- **Edit your agency profile in `agency.config.js`** (service area, levels of care, payors, differentiators, disclosed fee model) — it feeds directly into the strategist's case.
+- The hospital search keeps working **without** the SDK or an API key; if the AI feature isn't configured, the app shows a clear, actionable message instead of failing.
+- **Compliance is built into the prompts:** no PHI is requested or generated, statistics are framed as general industry dynamics (not fabricated facts), email drafts are CAN-SPAM-compliant, and California RCFE referral-source disclosures are surfaced. Always verify contacts and respect each hospital's vendor policy before outreach.
+
+---
+
 ## 0. Ground rules — read these first (they protect your license, reputation, and revenue)
 
 These are operating guardrails, not legal advice. Have a California elder-law / healthcare attorney review your referral agreements, disclosure forms, privacy policy, and outreach before you launch.

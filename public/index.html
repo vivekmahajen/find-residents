@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sign in — Referral Source Finder</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body class="auth-body">
+    <main class="auth-wrap">
+      <div class="auth-card">
+        <h1 class="auth-brand">🏥 Referral Source Finder</h1>
+        <p class="auth-tagline">Senior placement referral-source intelligence for California.</p>
+
+        <div class="auth-tabs" role="tablist">
+          <button class="auth-tab active" data-view="login" type="button">Log in</button>
+          <button class="auth-tab" data-view="signup" type="button">Create account</button>
+        </div>
+
+        <p id="auth-msg" class="auth-msg" aria-live="polite"></p>
+
+        <!-- Login -->
+        <form id="login-form" class="auth-form" autocomplete="on">
+          <label for="login-id">User ID or email</label>
+          <input id="login-id" name="identifier" type="text" required autocomplete="username" />
+
+          <label for="login-pw">Password</label>
+          <input id="login-pw" name="password" type="password" required autocomplete="current-password" />
+
+          <button type="submit" class="primary-btn full">Log in</button>
+          <button type="button" class="link-btn" data-view="forgot">Forgot password?</button>
+        </form>
+
+        <!-- Sign up -->
+        <form id="signup-form" class="auth-form" hidden autocomplete="on">
+          <label for="su-user">User ID</label>
+          <input id="su-user" name="username" type="text" required autocomplete="username" />
+          <span class="hint">3–32 chars: letters, numbers, dot, underscore, hyphen.</span>
+
+          <label for="su-email">Email</label>
+          <input id="su-email" name="email" type="email" required autocomplete="email" />
+
+          <label for="su-pw">Password</label>
+          <input id="su-pw" name="password" type="password" required autocomplete="new-password" />
+          <span class="hint">At least 8 characters, with a letter and a number.</span>
+
+          <button type="submit" class="primary-btn full">Create account</button>
+        </form>
+
+        <!-- Forgot password -->
+        <form id="forgot-form" class="auth-form" hidden>
+          <p class="auth-sub">Enter your email and we'll send a reset link.</p>
+          <label for="fp-email">Email</label>
+          <input id="fp-email" name="email" type="email" required autocomplete="email" />
+          <button type="submit" class="primary-btn full">Send reset link</button>
+          <button type="button" class="link-btn" data-view="login">← Back to log in</button>
+        </form>
+
+        <!-- Reset password (shown when ?token= is present) -->
+        <form id="reset-form" class="auth-form" hidden>
+          <p class="auth-sub">Choose a new password.</p>
+          <label for="rp-pw">New password</label>
+          <input id="rp-pw" name="password" type="password" required autocomplete="new-password" />
+          <span class="hint">At least 8 characters, with a letter and a number.</span>
+          <button type="submit" class="primary-btn full">Set new password</button>
+          <button type="button" class="link-btn" data-view="login">← Back to log in</button>
+        </form>
+      </div>
+    </main>
+
+    <script src="/auth.js"></script>
+  </body>
+</html>
