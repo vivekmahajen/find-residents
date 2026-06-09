@@ -24,6 +24,7 @@ const plans = require('./lib/plans');
 const mailer = require('./lib/mailer');
 const profileLib = require('./lib/profile');
 const deckLib = require('./lib/deck');
+const pricing = require('./lib/pricing');
 
 const IS_PROD = process.env.NODE_ENV === 'production';
 
@@ -486,13 +487,29 @@ async function handleStrategy(req, res) {
   const usedProfile = !!(user && user.profile && !profileLib.isEmpty(user.profile));
   const agencyContext = usedProfile ? profileLib.toContext(user.profile) : fallbackAgencyContext();
 
+  // Credit pre-check (a tailored case is a "document"). Free plans must have
+  // the credits; paid plans meter overage and are charged after success.
+  const acct = ensureAccount(user);
+  pricing.refreshCycle(acct);
+  if (!pricing.canAfford(acct, 'document')) {
+    return sendJson(res, 402, {
+      error: 'Out of credits — upgrade your plan or add a top-up to generate a tailored case.',
+      account: pricing.accountView(acct),
+    });
+  }
+
   try {
     const client = getAnthropicClient();
     // Agent 1 → pain points, then Agent 2 → profile-matched case built on them.
     const { painPoints } = await runPainPointAnalyst(client, facility, role, facilityType);
     const strategy = await runCaseGenerator(client, facility, role, painPoints || [], facilityType, agencyContext);
     strategy.savingsComputed = computeSavings(strategy.savings);
-    return sendJson(res, 200, { facility: facility.name, role, painPoints, strategy, usedProfile });
+    const charged = pricing.charge(acct, 'document');
+    store.updateUser(user.id, { account: acct });
+    return sendJson(res, 200, {
+      facility: facility.name, role, painPoints, strategy, usedProfile,
+      charged, account: pricing.accountView(acct),
+    });
   } catch (err) {
     if (err instanceof StrategyUnavailable) {
       return sendJson(res, 503, { error: err.message, needsSetup: true });
@@ -518,6 +535,16 @@ async function handleDeck(req, res) {
   if (!facility || !facility.name) return sendJson(res, 400, { error: 'Missing facility details.' });
   if (!role) return sendJson(res, 400, { error: 'Missing role.' });
 
+  // Credit pre-check (a deck costs deck credits).
+  const acct = ensureAccount(user);
+  pricing.refreshCycle(acct);
+  if (!pricing.canAfford(acct, 'deck')) {
+    return sendJson(res, 402, {
+      error: 'Out of credits — upgrade your plan or add a top-up to export a PowerPoint.',
+      account: pricing.accountView(acct),
+    });
+  }
+
   // Recompute savings server-side from the model's inputs (don't trust client math).
   const savings = computeSavings(strategy.savings);
 
@@ -532,6 +559,10 @@ async function handleDeck(req, res) {
       strategy,
       savings,
     });
+    // Deck built successfully — charge the deck credit now.
+    pricing.charge(acct, 'deck');
+    store.updateUser(user.id, { account: acct });
+
     const safeName = String(facility.name).replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'deck';
     res.writeHead(200, {
       'Content-Type': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
@@ -587,10 +618,6 @@ function publicUser(u) {
   return { id: u.id, username: u.username, email: u.email, subscription: u.subscription || null };
 }
 
-function hasActiveSub(u) {
-  return !!(u && u.subscription && Array.isArray(u.subscription.counties) && u.subscription.counties.length > 0);
-}
-
 async function handleSignup(req, res) {
   const body = await readJsonBody(req).catch(() => null);
   if (!body) return sendJson(res, 400, { error: 'Invalid request.' });
@@ -609,6 +636,7 @@ async function handleSignup(req, res) {
   if (store.findByEmail(email)) return sendJson(res, 409, { error: 'An account with that email already exists.' });
 
   const user = store.createUser({ username, email, passwordHash: authlib.hashPassword(password) });
+  ensureAccount(user); // start everyone on the Free plan (30 credits)
   setSessionCookie(res, store.createSession(user.id));
   return sendJson(res, 201, { user: publicUser(user) });
 }
@@ -747,6 +775,56 @@ async function handleSetProfile(req, res) {
   return sendJson(res, 200, { profile });
 }
 
+// ---- Credit plan & account ------------------------------------------------
+
+function ensureAccount(user) {
+  if (!user.account) {
+    user.account = pricing.defaultAccount();
+    store.updateUser(user.id, { account: user.account });
+  }
+  return user.account;
+}
+
+function handlePricing(req, res) {
+  return sendJson(res, 200, pricing.publicModel());
+}
+
+function handleGetAccount(req, res) {
+  const user = currentUser(req);
+  if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
+  const acct = ensureAccount(user);
+  if (pricing.refreshCycle(acct)) store.updateUser(user.id, { account: acct });
+  return sendJson(res, 200, { account: pricing.accountView(acct) });
+}
+
+async function handleSetPlan(req, res) {
+  const user = currentUser(req);
+  if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
+  const body = await readJsonBody(req).catch(() => null);
+  if (!body) return sendJson(res, 400, { error: 'Invalid request.' });
+  const plan = pricing.planById(String(body.plan || ''));
+  if (!plan) return sendJson(res, 400, { error: 'Unknown plan.' });
+  if (plan.custom) return sendJson(res, 400, { error: 'Contact sales to set up an Enterprise plan.' });
+  const acct = ensureAccount(user);
+  pricing.setPlan(acct, plan.id, !!body.annual);
+  store.updateUser(user.id, { account: acct });
+  return sendJson(res, 200, { account: pricing.accountView(acct) });
+}
+
+async function handleTopup(req, res) {
+  const user = currentUser(req);
+  if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
+  const body = await readJsonBody(req).catch(() => null);
+  if (!body) return sendJson(res, 400, { error: 'Invalid request.' });
+  const credits = Number(body.credits);
+  const pack = pricing.TOPUP_PACKS.find((t) => t.credits === credits);
+  if (!pack) return sendJson(res, 400, { error: 'Unknown top-up pack.' });
+  const acct = ensureAccount(user);
+  pricing.addTopup(acct, pack.credits);
+  store.updateUser(user.id, { account: acct });
+  return sendJson(res, 200, { account: pricing.accountView(acct), purchased: pack });
+}
+
 function serveStatic(req, res, pathname) {
   let rel = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
   // Prevent path traversal.
@@ -801,7 +879,13 @@ const server = http.createServer((req, res) => {
   if (pathname === '/api/profile' && method === 'GET') return handleGetProfile(req, res);
   if (pathname === '/api/profile' && method === 'POST') return handleSetProfile(req, res);
 
-  // --- Data API (requires login + an active subscription) ---
+  // --- Credit pricing & account ---
+  if (pathname === '/api/pricing') return handlePricing(req, res); // public
+  if (pathname === '/api/account' && method === 'GET') return handleGetAccount(req, res);
+  if (pathname === '/api/plan' && method === 'POST') return handleSetPlan(req, res);
+  if (pathname === '/api/topup' && method === 'POST') return handleTopup(req, res);
+
+  // --- Data API (requires login; AI deliverables consume credits) ---
   if (pathname === '/api/facility-types') {
     if (!currentUser(req)) return sendJson(res, 401, { error: 'Please log in.' });
     const types = Object.entries(FACILITY_TYPES).map(([id, t]) => ({
@@ -813,27 +897,15 @@ const server = http.createServer((req, res) => {
     return sendJson(res, 200, { types, default: DEFAULT_TYPE });
   }
   if (pathname === '/api/hospitals') {
-    const user = currentUser(req);
-    if (!user) return sendJson(res, 401, { error: 'Please log in.' });
-    if (!hasActiveSub(user)) {
-      return sendJson(res, 403, { error: 'Select at least one county to access referral-source data.' });
-    }
-    return handleApi(req, res, urlObj);
+    if (!currentUser(req)) return sendJson(res, 401, { error: 'Please log in.' });
+    return handleApi(req, res, urlObj); // search is free
   }
   if (pathname === '/api/strategy' && method === 'POST') {
-    const user = currentUser(req);
-    if (!user) return sendJson(res, 401, { error: 'Please log in.' });
-    if (!hasActiveSub(user)) {
-      return sendJson(res, 403, { error: 'Select at least one county to access this feature.' });
-    }
+    if (!currentUser(req)) return sendJson(res, 401, { error: 'Please log in.' });
     return handleStrategy(req, res);
   }
   if (pathname === '/api/deck' && method === 'POST') {
-    const user = currentUser(req);
-    if (!user) return sendJson(res, 401, { error: 'Please log in.' });
-    if (!hasActiveSub(user)) {
-      return sendJson(res, 403, { error: 'Select at least one county to access this feature.' });
-    }
+    if (!currentUser(req)) return sendJson(res, 401, { error: 'Please log in.' });
     return handleDeck(req, res);
   }
 

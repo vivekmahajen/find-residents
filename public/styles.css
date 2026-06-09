@@ -481,6 +481,169 @@ main {
   font-weight: 500;
 }
 
+/* ---- Plan & credits ---- */
+.plan-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.balance {
+  text-align: right;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.bal-credits {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--brand);
+}
+
+.bal-plan {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.bal-plan .over {
+  color: #b25e09;
+  font-weight: 600;
+}
+
+.annual-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.9rem;
+  margin: 0.6rem 0 1rem;
+  cursor: pointer;
+}
+
+.tier-ladder {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 0.75rem;
+}
+
+.tier-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  background: #fff;
+}
+
+.tier-card.current {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 2px rgba(31, 111, 235, 0.18);
+}
+
+.tier-name {
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+
+.tier-price {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.tier-price .per {
+  font-size: 0.85rem;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.tier-sub {
+  font-size: 0.74rem;
+}
+
+.tier-credits {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.tier-feats {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+  flex: 1;
+}
+
+.tier-feats li {
+  margin: 0.15rem 0;
+}
+
+.tier-btn {
+  margin-top: 0.4rem;
+  padding: 0.5rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--muted);
+}
+
+.tier-btn.primary-btn {
+  border: none;
+  color: #fff;
+  background: var(--brand);
+}
+
+.tier-btn:disabled {
+  cursor: default;
+  opacity: 0.85;
+}
+
+.topups {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.topup-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.1rem;
+  padding: 0.5rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg);
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.topup-btn:hover {
+  border-color: var(--brand);
+}
+
+.pricing-faq {
+  margin-top: 1rem;
+  font-size: 0.88rem;
+}
+
+.pricing-faq summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--brand);
+}
+
+.pricing-faq .bullet li {
+  margin: 0.25rem 0;
+}
+
 /* ---- Profile form ---- */
 #profile-form {
   display: flex;

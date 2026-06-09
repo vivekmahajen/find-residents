@@ -70,6 +70,16 @@ function fmtMoney(n) {
   return '$' + Number(n || 0).toLocaleString('en-US');
 }
 
+// In-plan credit cost for an action (from the loaded pricing model).
+function actionCredits(key) {
+  const m = window.PRICING;
+  if (m && m.actions) {
+    const a = m.actions.find((x) => x.key === key);
+    if (a) return a.inPlanCredits;
+  }
+  return key === 'deck' ? 30 : 10;
+}
+
 function formatPhone(raw) {
   const digits = String(raw || '').replace(/\D/g, '');
   if (digits.length === 10) {
@@ -127,7 +137,7 @@ function renderFacilities(data) {
         <select id="role-${f.npi}" class="role-select">
           ${roles.map((r) => `<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('')}
         </select>
-        <button type="button" class="strategy-btn">Pain points &amp; approach →</button>
+        <button type="button" class="strategy-btn">Pain points &amp; approach · ${actionCredits('document')} cr →</button>
       </div>
       <div class="strategy-panel" hidden></div>
     `;
@@ -156,8 +166,10 @@ async function runStrategy(facility, role, facilityType, btn, panel) {
     const data = await resp.json();
     if (!resp.ok) {
       panel.innerHTML = `<p class="panel-error">${escapeHtml(data.error || 'Something went wrong.')}</p>`;
+      if (data.account && window.setAccount) window.setAccount(data.account);
       return;
     }
+    if (data.account && window.setAccount) window.setAccount(data.account);
     renderStrategy(panel, role, data, facility, facilityType);
   } catch (err) {
     panel.innerHTML = `<p class="panel-error">Network error — is the server running? Try again.</p>`;
@@ -264,7 +276,7 @@ function renderStrategy(panel, role, data, facility, facilityType) {
       }
       ${complianceHtml ? `<h5>Compliance reminders</h5><ul class="bullet compliance">${complianceHtml}</ul>` : ''}
       <div class="deck-bar">
-        <button type="button" class="deck-btn">📊 Build PowerPoint</button>
+        <button type="button" class="deck-btn">📊 Build PowerPoint · ${actionCredits('deck')} cr</button>
         <span class="deck-status"></span>
       </div>
     </div>
@@ -304,6 +316,7 @@ async function buildDeck(btn, statusEl, payload) {
     if (!resp.ok) {
       const d = await resp.json().catch(() => ({}));
       if (statusEl) statusEl.textContent = d.error || 'Could not build the deck.';
+      if (d.account && window.setAccount) window.setAccount(d.account);
       return;
     }
     const blob = await resp.blob();
@@ -319,6 +332,7 @@ async function buildDeck(btn, statusEl, payload) {
     a.remove();
     URL.revokeObjectURL(url);
     if (statusEl) statusEl.textContent = 'Downloaded ✓';
+    if (window.refreshAccount) window.refreshAccount(); // deck consumed credits
   } catch (err) {
     if (statusEl) statusEl.textContent = 'Network error building the deck.';
   } finally {

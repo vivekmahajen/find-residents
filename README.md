@@ -17,21 +17,35 @@ npm start          # or: node server.js
 
 - **No build step, no dependencies for the core app** (auth, accounts, subscription, and finder all use Node's built-ins). The AI feature (below) is the only thing needing an install + key. Requires Node 18+.
 
-### 🔑 Accounts, login & subscription
+### 🔑 Accounts & login
 
-- **Login is the landing page.** New users create an account with a **User ID**, a valid **email**, and a **password** (min 8 chars, letter + number). Standard flows included: log in (by User ID *or* email), log out, and **forgot/reset password**.
-- After login, the dashboard lets a user pick a **state** (CA only for now) and **counties** (all 58 CA counties), with **live monthly pricing**:
-
-  | Counties | Price / month |
-  |---|---|
-  | 1 | $299 |
-  | 2 | $399 |
-  | 3 | $499 |
-
-- Saving the coverage **unlocks** the finder and AI tools. The data APIs require both a logged-in session and an active subscription (≥1 county).
+- **Login is the landing page.** New users create an account with a **User ID**, a valid **email**, and a **password** (min 8 chars, letter + number). Standard flows included: log in (by User ID *or* email), log out, and **forgot/reset password**. Everyone starts on the **Free** plan.
 - **How it's built:** passwords are hashed with Node's `crypto` **scrypt** (salted, constant-time compare); sessions are **HttpOnly cookies** backed by a small **JSON file store** (`data/db.json`, gitignored, atomic writes — swap for SQLite/Postgres later). Set `NODE_ENV=production` to add the `Secure` cookie flag.
 - **Forgot-password email:** no email provider is wired up, so the reset link is **logged to the server console** (and shown on-screen in dev for testing). For production, implement `lib/mailer.js → sendPasswordReset()` with a real provider and remove the dev link.
-- **Payments:** plan selection + pricing are implemented and the subscription is saved, but **no payment processor is integrated** — wiring up Stripe (or similar) to actually charge is a separate, intentional next step.
+
+### 💳 Credit-based pricing (plans + credits)
+
+Billing is a **credit model** (`lib/pricing.js`). A plan grants monthly credits; the AI **deliverables consume credits** (searching is free):
+
+| Plan | Monthly | Annual (−20%) | Credits | ~Decks | Eff. $/deck |
+|---|---|---|---|---|---|
+| Free | $0 | — | 30 (one-time) | ~1 | — |
+| Starter | $25 | $20/mo | 300 | ~10 | $2.50 |
+| Pro | $59 | $47/mo | 750 | ~25 | $2.36 |
+| Business | $149 | $119/mo | 2,000 | ~66 | $2.24 |
+| Scale | $299 | $239/mo | 4,200 | ~140 | $2.14 |
+| Enterprise | custom | — | custom | — | — |
+
+- **Per-action cost** (at $0.10/credit): tailored case (a *Document*) **10 cr** in-plan / 15 overage; PowerPoint deck **30 cr** / 45; (Spreadsheet 15/23, Deep research 60/90 are in the catalog for future actions).
+- **Overage:** on paid plans, work past your monthly credits is metered (`$ = overage credits × $0.10`, accrued as owed); the **Free plan stops** when credits run out (HTTP 402 → upgrade/top-up).
+- **Top-up packs** (250/$25, 1,000/$90, 5,000/$400) carry over while subscribed; plan credits reset each cycle.
+- The dashboard shows your **balance**, the **tier ladder** (with an annual toggle and effective $/deck), top-ups, and a credits FAQ. Each AI button shows its credit cost and the balance updates after each action.
+- **Endpoints:** `GET /api/pricing` (public model), `GET /api/account`, `POST /api/plan`, `POST /api/topup`. Credits are enforced and charged server-side in `/api/strategy` and `/api/deck`.
+- **Payments:** plan selection, credit accounting, overage, and top-ups are implemented, but **no payment processor is integrated** — wiring Stripe to actually charge cards/meter overage is a separate, intentional next step.
+
+### 🗺️ Data coverage (optional, free)
+
+County selection is now a free **data-coverage preference** (which CA counties you focus on) — it no longer affects billing and doesn't gate the tools.
 - **Data source:** the free federal **NPI Registry (NPPES)** API. Live, nationwide.
 - **How it works:** a tiny Node server (`server.js`) handles auth + subscriptions and proxies the NPPES API (which has no CORS headers), filtering to the right NPI taxonomies for the chosen **source type**, de-duplicating, caching for 10 min, and serving the `public/` frontend (`index.html` = login, `app.html` = dashboard).
 - **Source types:** Hospitals · Skilled Nursing (SNF) · Hospice & Home Health. Each maps to its own taxonomies and the staff roles you'd approach; SNF and hospice are flagged **reciprocal** (you can refer families to them too), which the strategist leans into.
