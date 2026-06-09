@@ -7,6 +7,13 @@ const US_STATES = [
   'RI', 'SC', 'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY',
 ];
 
+const ROLES = [
+  'Case Manager',
+  'Discharge Planner',
+  'Medical Social Worker',
+  'Director of Case Management / Care Coordination',
+];
+
 const form = document.getElementById('search-form');
 const locationInput = document.getElementById('location');
 const stateSelect = document.getElementById('state');
@@ -73,13 +80,110 @@ function renderHospitals(data) {
         <a href="${h.mapsUrl}" target="_blank" rel="noopener">🗺️ Map</a>
         <span class="npi">NPI ${escapeHtml(h.npi)}</span>
       </div>
-      <p class="approach">
-        Approach via <strong>Case Management / Discharge Planning</strong> —
-        verify the current contact on the hospital's official site before outreach.
-      </p>
+      <div class="strategy-bar">
+        <label class="sr-only" for="role-${h.npi}">Role to approach</label>
+        <select id="role-${h.npi}" class="role-select">
+          ${ROLES.map((r) => `<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('')}
+        </select>
+        <button type="button" class="strategy-btn">Pain points &amp; approach →</button>
+      </div>
+      <div class="strategy-panel" hidden></div>
     `;
+
+    const btn = card.querySelector('.strategy-btn');
+    const select = card.querySelector('.role-select');
+    const panel = card.querySelector('.strategy-panel');
+    btn.addEventListener('click', () => runStrategy(h, select.value, btn, panel));
+
     resultsEl.appendChild(card);
   }
+}
+
+async function runStrategy(hospital, role, btn, panel) {
+  btn.disabled = true;
+  btn.textContent = 'Analyzing…';
+  panel.hidden = false;
+  panel.innerHTML = `<p class="muted"><span class="spinner"></span> Agent 1 is identifying pain points, then Agent 2 builds the approach…</p>`;
+
+  try {
+    const resp = await fetch('/api/strategy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ hospital, role }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      panel.innerHTML = `<p class="panel-error">${escapeHtml(data.error || 'Something went wrong.')}</p>`;
+      return;
+    }
+    renderStrategy(panel, role, data);
+  } catch (err) {
+    panel.innerHTML = `<p class="panel-error">Network error — is the server running? Try again.</p>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Re-run analysis ↻';
+  }
+}
+
+const SEVERITY_ORDER = { high: 0, medium: 1, low: 2 };
+
+function renderStrategy(panel, role, data) {
+  const painPoints = (data.painPoints || [])
+    .slice()
+    .sort((a, b) => (SEVERITY_ORDER[a.severity] ?? 9) - (SEVERITY_ORDER[b.severity] ?? 9));
+  const s = data.strategy || {};
+
+  const painHtml = painPoints
+    .map(
+      (p) => `
+      <li class="pain">
+        <span class="sev sev-${escapeHtml(p.severity)}">${escapeHtml(p.severity)}</span>
+        <strong>${escapeHtml(p.title)}</strong>
+        <p>${escapeHtml(p.description)}</p>
+      </li>`
+    )
+    .join('');
+
+  const valueHtml = (s.valueProps || [])
+    .map(
+      (v) => `
+      <li><strong>${escapeHtml(v.painPoint)}</strong><br><span>${escapeHtml(v.howWeHelp)}</span></li>`
+    )
+    .join('');
+
+  const talkingHtml = (s.talkingPoints || [])
+    .map((t) => `<li>${escapeHtml(t)}</li>`)
+    .join('');
+
+  const complianceHtml = (s.complianceNotes || [])
+    .map((c) => `<li>${escapeHtml(c)}</li>`)
+    .join('');
+
+  const email = s.emailDraft || {};
+
+  panel.innerHTML = `
+    <div class="agent-block">
+      <h4><span class="agent-tag">Agent 1</span> Pain points · ${escapeHtml(role)}</h4>
+      <ul class="pain-list">${painHtml || '<li>No pain points returned.</li>'}</ul>
+    </div>
+    <div class="agent-block">
+      <h4><span class="agent-tag agent-tag-2">Agent 2</span> Recommended approach</h4>
+      ${s.summary ? `<p class="strat-summary">${escapeHtml(s.summary)}</p>` : ''}
+      ${valueHtml ? `<h5>How we help</h5><ul class="value-list">${valueHtml}</ul>` : ''}
+      ${talkingHtml ? `<h5>Talking points</h5><ul class="bullet">${talkingHtml}</ul>` : ''}
+      ${s.suggestedFirstStep ? `<h5>Best first step</h5><p>${escapeHtml(s.suggestedFirstStep)}</p>` : ''}
+      ${
+        email.subject || email.body
+          ? `<h5>Draft email</h5>
+             <div class="email">
+               <p class="email-subject"><strong>Subject:</strong> ${escapeHtml(email.subject || '')}</p>
+               <pre class="email-body">${escapeHtml(email.body || '')}</pre>
+             </div>`
+          : ''
+      }
+      ${complianceHtml ? `<h5>Compliance reminders</h5><ul class="bullet compliance">${complianceHtml}</ul>` : ''}
+    </div>
+  `;
 }
 
 form.addEventListener('submit', async (e) => {

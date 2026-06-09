@@ -7,6 +7,9 @@
   "scripts": {
     "start": "node server.js"
   },
+  "dependencies": {
+    "@anthropic-ai/sdk": "latest"
+  },
   "engines": {
     "node": ">=18"
   }

@@ -17,8 +17,20 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
+const AGENCY = require('./agency.config');
+
 const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, 'public');
+
+// Claude model for the pain-point + outreach agents. Override with CLAUDE_MODEL.
+const CLAUDE_MODEL = process.env.CLAUDE_MODEL || 'claude-opus-4-8';
+
+const ROLES = [
+  'Case Manager',
+  'Discharge Planner',
+  'Medical Social Worker',
+  'Director of Case Management / Care Coordination',
+];
 
 const NPI_BASE = 'https://npiregistry.cms.hhs.gov/api/';
 
@@ -156,6 +168,209 @@ async function handleApi(req, res, urlObj) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Strategy feature: two chained Claude agents.
+//   Agent 1 (Pain Point Analyst)  → role's real operational pain points
+//   Agent 2 (Outreach Strategist) → how our agency makes its case against them
+// The Anthropic SDK is loaded lazily so the hospital search keeps working with
+// zero dependencies and no API key.
+// ---------------------------------------------------------------------------
+
+function readJsonBody(req) {
+  return new Promise((resolve, reject) => {
+    let raw = '';
+    req.on('data', (chunk) => {
+      raw += chunk;
+      if (raw.length > 1e6) reject(new Error('Request body too large')); // ~1MB guard
+    });
+    req.on('end', () => {
+      try {
+        resolve(raw ? JSON.parse(raw) : {});
+      } catch {
+        reject(new Error('Invalid JSON body'));
+      }
+    });
+    req.on('error', reject);
+  });
+}
+
+// Thrown when the AI feature isn't configured — handled as a 503 with guidance.
+class StrategyUnavailable extends Error {}
+
+function getAnthropicClient() {
+  if (!process.env.ANTHROPIC_API_KEY) {
+    throw new StrategyUnavailable(
+      'Set the ANTHROPIC_API_KEY environment variable to enable pain-point analysis.'
+    );
+  }
+  let mod;
+  try {
+    mod = require('@anthropic-ai/sdk');
+  } catch {
+    throw new StrategyUnavailable(
+      'The Anthropic SDK is not installed. Run: npm install @anthropic-ai/sdk'
+    );
+  }
+  const Anthropic = mod.default || mod;
+  return new Anthropic();
+}
+
+// One structured-output Claude call. Returns the parsed JSON object.
+async function callClaude(client, { system, user, schema, maxTokens = 2048 }) {
+  const msg = await client.messages.create({
+    model: CLAUDE_MODEL,
+    max_tokens: maxTokens,
+    system,
+    messages: [{ role: 'user', content: user }],
+    output_config: {
+      effort: 'medium',
+      format: { type: 'json_schema', schema },
+    },
+  });
+  const text = (msg.content || [])
+    .filter((b) => b.type === 'text')
+    .map((b) => b.text)
+    .join('');
+  return JSON.parse(text);
+}
+
+const COMPLIANCE_RULES = `Compliance rules you must honor:
+- Never request, infer, or include any patient's protected health information (PHI). Referrals come only from consenting families or via signed releases the source holds.
+- Outreach to hospital staff is professional B2B relationship-building, not consumer marketing. Any consumer-facing copy must disclose that facilities pay the agency, the fee model, services provided, and known facility violations (California RCFE referral-source law).
+- Email drafts must be CAN-SPAM compliant: honest subject line, clear sender identity, no deceptive claims.
+- Be truthful. Do not fabricate facility data, statistics, outcomes, or credentials. Frame statistics as general industry dynamics, not verified facts about this hospital.`;
+
+const PAIN_POINTS_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    painPoints: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          title: { type: 'string' },
+          description: { type: 'string' },
+          severity: { type: 'string', enum: ['high', 'medium', 'low'] },
+        },
+        required: ['title', 'description', 'severity'],
+      },
+    },
+  },
+  required: ['painPoints'],
+};
+
+const STRATEGY_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    summary: { type: 'string' },
+    valueProps: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          painPoint: { type: 'string' },
+          howWeHelp: { type: 'string' },
+        },
+        required: ['painPoint', 'howWeHelp'],
+      },
+    },
+    talkingPoints: { type: 'array', items: { type: 'string' } },
+    suggestedFirstStep: { type: 'string' },
+    emailDraft: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        subject: { type: 'string' },
+        body: { type: 'string' },
+      },
+      required: ['subject', 'body'],
+    },
+    complianceNotes: { type: 'array', items: { type: 'string' } },
+  },
+  required: [
+    'summary',
+    'valueProps',
+    'talkingPoints',
+    'suggestedFirstStep',
+    'emailDraft',
+    'complianceNotes',
+  ],
+};
+
+async function runPainPointAnalyst(client, hospital, role) {
+  const system = `You are an expert in U.S. hospital case management and discharge-planning operations. You understand the daily pressures these teams face — length of stay, throughput metrics, readmission penalties, hard-to-place patients, and payor complexity. Identify the genuine, role-specific operational pain points that a senior-placement referral agency could realistically help relieve. ${COMPLIANCE_RULES}`;
+  const user = `Hospital: ${hospital.name} (${[hospital.city, hospital.state].filter(Boolean).join(', ')})
+Hospital type: ${hospital.type || 'Hospital'}
+Role we are contacting: ${role}
+
+List 4-6 concrete pain points this role faces that are relevant to placing patients into assisted living / board-and-care / memory care. Rank by severity. Keep each description to 1-2 sentences and specific to this role's workflow.`;
+  return callClaude(client, { system, user, schema: PAIN_POINTS_SCHEMA, maxTokens: 1500 });
+}
+
+async function runOutreachStrategist(client, hospital, role, painPoints) {
+  const system = `You are a business-development strategist for a licensed-compliant California senior-placement / RCFE referral agency. You craft honest, value-first outreach to referral SOURCES (hospital staff). You map the agency's real capabilities to the contact's pain points and never overpromise. ${COMPLIANCE_RULES}`;
+  const agency = `Our agency profile:
+- Name: ${AGENCY.agencyName}
+- Service area: ${AGENCY.serviceArea}
+- Levels of care we place: ${AGENCY.levelsOfCare.join('; ')}
+- Payors we handle: ${AGENCY.payors.join('; ')}
+- Differentiators: ${AGENCY.differentiators.join('; ')}
+- Fee model (disclose this): ${AGENCY.feeModel}`;
+  const user = `${agency}
+
+Contact: ${role} at ${hospital.name} (${[hospital.city, hospital.state].filter(Boolean).join(', ')}).
+
+Pain points identified for this contact:
+${painPoints.map((p, i) => `${i + 1}. [${p.severity}] ${p.title} — ${p.description}`).join('\n')}
+
+Produce the best approach to make a case for our services:
+- summary: 1-2 sentence overall angle for this contact.
+- valueProps: map each major pain point to specifically how we help (use our differentiators honestly).
+- talkingPoints: 4-6 crisp points for a first meeting or call, framed around THEIR metrics (length of stay, safe/timely discharge, readmissions).
+- suggestedFirstStep: the single best opening move (e.g., warm intro, a lunch-and-learn offer, capabilities sheet drop) and why.
+- emailDraft: a short, CAN-SPAM-compliant first-contact email (subject + body) from our agency to this contact. Identify the sender, be specific to their pains, offer value, no hard sell.
+- complianceNotes: reminders specific to this outreach (PHI, vendor registration, required disclosures).`;
+  return callClaude(client, { system, user, schema: STRATEGY_SCHEMA, maxTokens: 2600 });
+}
+
+async function handleStrategy(req, res) {
+  let body;
+  try {
+    body = await readJsonBody(req);
+  } catch (err) {
+    return sendJson(res, 400, { error: String(err.message || err) });
+  }
+
+  const hospital = body.hospital;
+  const role = body.role;
+  if (!hospital || !hospital.name) {
+    return sendJson(res, 400, { error: 'Missing hospital details.' });
+  }
+  if (!role) {
+    return sendJson(res, 400, { error: 'Choose a role to approach.' });
+  }
+
+  try {
+    const client = getAnthropicClient();
+    // Agent 1 → pain points, then Agent 2 → approach built on them.
+    const { painPoints } = await runPainPointAnalyst(client, hospital, role);
+    const strategy = await runOutreachStrategist(client, hospital, role, painPoints || []);
+    return sendJson(res, 200, { hospital: hospital.name, role, painPoints, strategy });
+  } catch (err) {
+    if (err instanceof StrategyUnavailable) {
+      return sendJson(res, 503, { error: err.message, needsSetup: true });
+    }
+    return sendJson(res, 502, {
+      error: 'The analysis service failed. Check your API key and network, then retry.',
+      detail: String(err.message || err),
+    });
+  }
+}
+
 function serveStatic(req, res, pathname) {
   let rel = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
   // Prevent path traversal.
@@ -179,6 +394,12 @@ const server = http.createServer((req, res) => {
   const urlObj = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   if (urlObj.pathname === '/api/hospitals') {
     return handleApi(req, res, urlObj);
+  }
+  if (urlObj.pathname === '/api/roles') {
+    return sendJson(res, 200, { roles: ROLES });
+  }
+  if (urlObj.pathname === '/api/strategy' && req.method === 'POST') {
+    return handleStrategy(req, res);
   }
   return serveStatic(req, res, urlObj.pathname);
 });

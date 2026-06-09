@@ -23,6 +23,26 @@ npm start          # or: node server.js
 
 > Note: outbound calls to the NPI Registry require normal internet access. If the API is unreachable the app shows a clear error.
 
+### 🤖 AI pain-point analysis & outreach strategy (two agents)
+
+For any hospital in the results, pick the **role you're contacting** (Case Manager, Discharge Planner, Medical Social Worker, Director of Case Management) and click **"Pain points & approach"**. Two chained Claude agents run:
+
+1. **Agent 1 — Pain Point Analyst:** identifies that role's real operational pain points (length of stay, throughput, readmissions, hard-to-place patients), ranked by severity.
+2. **Agent 2 — Outreach Strategist:** takes those pain points + your agency profile and produces a tailored, compliant approach — value-prop mapping, talking points, a CAN-SPAM-compliant draft email, and compliance reminders.
+
+**Setup (only needed for this feature):**
+
+```bash
+npm install @anthropic-ai/sdk      # the hospital search itself needs no install
+export ANTHROPIC_API_KEY=sk-ant-...
+npm start
+```
+
+- Built on the official Anthropic SDK, model `claude-opus-4-8` (override with `CLAUDE_MODEL`), with structured JSON outputs.
+- **Edit your agency profile in `agency.config.js`** (service area, levels of care, payors, differentiators, disclosed fee model) — it feeds directly into the strategist's case.
+- The hospital search keeps working **without** the SDK or an API key; if the AI feature isn't configured, the app shows a clear, actionable message instead of failing.
+- **Compliance is built into the prompts:** no PHI is requested or generated, statistics are framed as general industry dynamics (not fabricated facts), email drafts are CAN-SPAM-compliant, and California RCFE referral-source disclosures are surfaced. Always verify contacts and respect each hospital's vendor policy before outreach.
+
 ---
 
 ## 0. Ground rules — read these first (they protect your license, reputation, and revenue)
