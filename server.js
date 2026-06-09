@@ -26,6 +26,7 @@ const profileLib = require('./lib/profile');
 const deckLib = require('./lib/deck');
 const pricing = require('./lib/pricing');
 const stripeLib = require('./lib/stripe');
+const adminLib = require('./lib/admin');
 
 const IS_PROD = process.env.NODE_ENV === 'production';
 
@@ -488,14 +489,15 @@ async function handleStrategy(req, res) {
   const usedProfile = !!(user && user.profile && !profileLib.isEmpty(user.profile));
   const agencyContext = usedProfile ? profileLib.toContext(user.profile) : fallbackAgencyContext();
 
-  // Credit pre-check (a tailored case is a "document"). Free plans must have
-  // the credits; paid plans meter overage and are charged after success.
+  // Credit pre-check (a tailored case is a "document"). Admins bypass billing.
+  // Free plans must have the credits; paid plans meter overage.
+  const admin = adminLib.isAdmin(user);
   const acct = await ensureAccount(user);
   pricing.refreshCycle(acct);
-  if (!pricing.canAfford(acct, 'document')) {
+  if (!admin && !pricing.canAfford(acct, 'document')) {
     return sendJson(res, 402, {
       error: 'Out of credits — upgrade your plan or add a top-up to generate a tailored case.',
-      account: pricing.accountView(acct),
+      account: accountViewFor(user, acct),
     });
   }
 
@@ -505,11 +507,11 @@ async function handleStrategy(req, res) {
     const { painPoints } = await runPainPointAnalyst(client, facility, role, facilityType);
     const strategy = await runCaseGenerator(client, facility, role, painPoints || [], facilityType, agencyContext);
     strategy.savingsComputed = computeSavings(strategy.savings);
-    const charged = pricing.charge(acct, 'document');
-    await store.updateUser(user.id, { account: acct });
+    const charged = admin ? { mode: 'admin', creditsCharged: 0 } : pricing.charge(acct, 'document');
+    if (!admin) await store.updateUser(user.id, { account: acct });
     return sendJson(res, 200, {
       facility: facility.name, role, painPoints, strategy, usedProfile,
-      charged, account: pricing.accountView(acct),
+      charged, account: accountViewFor(user, acct),
     });
   } catch (err) {
     if (err instanceof StrategyUnavailable) {
@@ -536,13 +538,14 @@ async function handleDeck(req, res) {
   if (!facility || !facility.name) return sendJson(res, 400, { error: 'Missing facility details.' });
   if (!role) return sendJson(res, 400, { error: 'Missing role.' });
 
-  // Credit pre-check (a deck costs deck credits).
+  // Credit pre-check (a deck costs deck credits). Admins bypass billing.
+  const admin = adminLib.isAdmin(user);
   const acct = await ensureAccount(user);
   pricing.refreshCycle(acct);
-  if (!pricing.canAfford(acct, 'deck')) {
+  if (!admin && !pricing.canAfford(acct, 'deck')) {
     return sendJson(res, 402, {
       error: 'Out of credits — upgrade your plan or add a top-up to export a PowerPoint.',
-      account: pricing.accountView(acct),
+      account: accountViewFor(user, acct),
     });
   }
 
@@ -560,9 +563,11 @@ async function handleDeck(req, res) {
       strategy,
       savings,
     });
-    // Deck built successfully — charge the deck credit now.
-    pricing.charge(acct, 'deck');
-    await store.updateUser(user.id, { account: acct });
+    // Deck built successfully — charge the deck credit now (admins are free).
+    if (!admin) {
+      pricing.charge(acct, 'deck');
+      await store.updateUser(user.id, { account: acct });
+    }
 
     const safeName = String(facility.name).replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'deck';
     res.writeHead(200, {
@@ -786,6 +791,16 @@ async function ensureAccount(user) {
   return user.account;
 }
 
+// Account view + admin flag (admins are unlimited / not billed).
+function accountViewFor(user, acct) {
+  const view = pricing.accountView(acct);
+  if (adminLib.isAdmin(user)) {
+    view.admin = true;
+    view.unlimited = true;
+  }
+  return view;
+}
+
 function handlePricing(req, res) {
   return sendJson(res, 200, { ...pricing.publicModel(), stripeEnabled: stripeLib.enabled() });
 }
@@ -801,7 +816,7 @@ async function handleGetAccount(req, res) {
   if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
   const acct = await ensureAccount(user);
   if (pricing.refreshCycle(acct)) await store.updateUser(user.id, { account: acct });
-  return sendJson(res, 200, { account: pricing.accountView(acct) });
+  return sendJson(res, 200, { account: accountViewFor(user, acct) });
 }
 
 async function handleSetPlan(req, res) {
@@ -1033,12 +1048,30 @@ async function route(req, res) {
   return serveStatic(req, res, pathname);
 }
 
+// Create the admin account from env (ADMIN_EMAIL + ADMIN_PASSWORD) if it
+// doesn't exist yet. Runs once after the store is ready. The password is never
+// reset on subsequent boots; use scripts/create-admin.js to rotate it.
+async function seedAdminFromEnv() {
+  const email = String(process.env.ADMIN_EMAIL || '').trim();
+  const password = process.env.ADMIN_PASSWORD || '';
+  if (!email || !password) return;
+  if (await store.findByEmail(email)) return;
+  let username = (email.split('@')[0] || 'admin').replace(/[^a-zA-Z0-9_.-]/g, '').slice(0, 32);
+  if (username.length < 3) username = 'admin';
+  let candidate = username;
+  let n = 1;
+  while (await store.findByUsername(candidate)) candidate = `${username.slice(0, 28)}${n++}`.slice(0, 32);
+  await store.createUser({ username: candidate, email, passwordHash: authlib.hashPassword(password) });
+  // eslint-disable-next-line no-console
+  console.log(`Seeded admin account for ${email}`);
+}
+
 // Exported request handler — used by server.listen (local / persistent host)
 // and by the Vercel serverless entrypoint (api/index.js).
 let storeReady = null;
 async function handler(req, res) {
   try {
-    if (!storeReady) storeReady = store.init();
+    if (!storeReady) storeReady = store.init().then(seedAdminFromEnv);
     await storeReady;
     await route(req, res);
   } catch (err) {

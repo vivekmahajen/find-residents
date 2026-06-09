@@ -82,6 +82,25 @@ Billing is a **credit model** (`lib/pricing.js`). A plan grants monthly credits;
   - With Stripe live, the instant `/api/plan` and `/api/topup` endpoints refuse paid changes (Free downgrade still works), so credits can't be granted without payment.
   - **Not yet wired:** charging the metered overage balance (`overageUsd`) back to the card — overage is tracked but not yet invoiced. Subscription **renewals** currently top up credits via the in-app 30-day cycle reset rather than the `invoice.paid` webhook.
 
+### 👑 Admin accounts (no billing)
+
+Admins bypass billing entirely — no credit checks, no charges, AI deliverables are unlimited. Admins are identified by **email** via `ADMIN_EMAILS` (comma-separated; defaults to `vmahajans@yahoo.com`).
+
+**Create the admin account** (`vmahajans@yahoo.com`). The username can't contain `@`, so log in with the **email**. Two ways:
+
+- **Auto-seed (recommended, works on Vercel):** set env vars and the account is created on first boot if it doesn't exist —
+  ```bash
+  ADMIN_EMAIL=vmahajans@yahoo.com
+  ADMIN_PASSWORD=manisha2025
+  ```
+- **Script (local / persistent host / against a DB):**
+  ```bash
+  ADMIN_EMAIL=vmahajans@yahoo.com ADMIN_PASSWORD=manisha2025 npm run create-admin
+  ```
+  (Re-running updates the password.)
+
+Then log in at `/` with **User ID/email = `vmahajans@yahoo.com`** and the password. The dashboard shows **"Unlimited · Admin · no billing"** and credits are never deducted. To rotate the password later, re-run the script; to revoke admin, remove the email from `ADMIN_EMAILS`.
+
 ### 🗺️ Data coverage (optional, free)
 
 County selection is now a free **data-coverage preference** (which CA counties you focus on) — it no longer affects billing and doesn't gate the tools.
