@@ -204,6 +204,283 @@ main {
   font-size: 0.8rem;
 }
 
+/* ---- Auth (login / signup) page ---- */
+.auth-body {
+  display: flex;
+  min-height: 100vh;
+  align-items: center;
+  justify-content: center;
+}
+
+.auth-wrap {
+  width: 100%;
+  max-width: 420px;
+  padding: 1.5rem;
+}
+
+.auth-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  padding: 2rem 1.75rem;
+}
+
+.auth-brand {
+  margin: 0;
+  font-size: 1.4rem;
+  text-align: center;
+}
+
+.auth-tagline {
+  margin: 0.35rem 0 1.25rem;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.auth-tabs {
+  display: flex;
+  gap: 0.4rem;
+  background: var(--bg);
+  border-radius: 10px;
+  padding: 0.25rem;
+  margin-bottom: 1rem;
+}
+
+.auth-tab {
+  flex: 1;
+  padding: 0.55rem;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.auth-tab.active {
+  background: #fff;
+  color: var(--ink);
+  box-shadow: var(--shadow);
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.auth-form label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--muted);
+  margin-top: 0.6rem;
+}
+
+.auth-form input {
+  padding: 0.7rem 0.8rem;
+  font-size: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+}
+
+.auth-form input:focus {
+  outline: none;
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px rgba(31, 111, 235, 0.15);
+}
+
+.auth-sub {
+  margin: 0 0 0.3rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.auth-msg {
+  min-height: 1.1rem;
+  font-size: 0.88rem;
+  margin: 0.25rem 0;
+  color: var(--muted);
+}
+
+.auth-msg.error {
+  color: #b42318;
+}
+
+.auth-msg.success {
+  color: var(--accent);
+}
+
+.dev-link {
+  color: var(--brand);
+  font-size: 0.85rem;
+}
+
+.primary-btn {
+  padding: 0.75rem 1.2rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #fff;
+  background: var(--brand);
+  border: none;
+  border-radius: 9px;
+  cursor: pointer;
+}
+
+.primary-btn:hover {
+  background: var(--brand-dark);
+}
+
+.primary-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.primary-btn.full {
+  width: 100%;
+  margin-top: 1rem;
+}
+
+.link-btn {
+  background: none;
+  border: none;
+  color: var(--brand);
+  font-size: 0.88rem;
+  cursor: pointer;
+  padding: 0.4rem;
+  margin-top: 0.3rem;
+}
+
+.link-btn:hover {
+  text-decoration: underline;
+}
+
+/* ---- App bar + dashboard panels ---- */
+.app-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.9rem 1.25rem;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+}
+
+.app-bar-title {
+  font-weight: 700;
+}
+
+.app-bar-spacer {
+  flex: 1;
+}
+
+.who {
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.panel {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  padding: 1.4rem 1.5rem;
+  margin-top: 1.25rem;
+}
+
+.panel h2 {
+  margin: 0 0 0.25rem;
+  font-size: 1.25rem;
+}
+
+.panel h3 {
+  margin: 1.1rem 0 0.5rem;
+  font-size: 1rem;
+}
+
+.plan-grid {
+  display: flex;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  margin-top: 0.5rem;
+}
+
+.tiers {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.tier {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.5rem 0.85rem;
+  background: var(--bg);
+}
+
+.tier-n {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.tier-p {
+  font-weight: 700;
+}
+
+.county-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 0.35rem 0.75rem;
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.75rem;
+}
+
+.county {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+  padding: 0.15rem 0;
+}
+
+.county input:disabled + span {
+  color: #b9c0cc;
+}
+
+.plan-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 1rem;
+  flex-wrap: wrap;
+}
+
+.price {
+  font-size: 1.05rem;
+}
+
+.plan-status {
+  margin: 0.6rem 0 0;
+  color: var(--accent);
+  font-size: 0.9rem;
+  min-height: 1rem;
+}
+
+.locked-note {
+  color: var(--muted);
+  text-align: center;
+  font-weight: 500;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;

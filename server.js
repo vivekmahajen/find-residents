@@ -18,6 +18,12 @@ const fs = require('fs');
 const path = require('path');
 
 const AGENCY = require('./agency.config');
+const store = require('./lib/store');
+const authlib = require('./lib/auth');
+const plans = require('./lib/plans');
+const mailer = require('./lib/mailer');
+
+const IS_PROD = process.env.NODE_ENV === 'production';
 
 const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -423,6 +429,188 @@ async function handleStrategy(req, res) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Authentication: signup, login, logout, forgot/reset password.
+// Sessions are HttpOnly cookies backed by the JSON store.
+// ---------------------------------------------------------------------------
+
+function parseCookies(req) {
+  const out = {};
+  const header = req.headers.cookie;
+  if (!header) return out;
+  for (const part of header.split(';')) {
+    const i = part.indexOf('=');
+    if (i > -1) out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim());
+  }
+  return out;
+}
+
+function currentUser(req) {
+  const sid = parseCookies(req).sid;
+  if (!sid) return null;
+  const session = store.getSession(sid);
+  if (!session) return null;
+  return store.findById(session.userId);
+}
+
+function setSessionCookie(res, token) {
+  const secure = IS_PROD ? ' Secure;' : '';
+  res.setHeader(
+    'Set-Cookie',
+    `sid=${token}; HttpOnly; SameSite=Lax; Path=/;${secure} Max-Age=${7 * 24 * 60 * 60}`
+  );
+}
+
+function clearSessionCookie(res) {
+  res.setHeader('Set-Cookie', 'sid=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0');
+}
+
+function publicUser(u) {
+  return { id: u.id, username: u.username, email: u.email, subscription: u.subscription || null };
+}
+
+function hasActiveSub(u) {
+  return !!(u && u.subscription && Array.isArray(u.subscription.counties) && u.subscription.counties.length > 0);
+}
+
+async function handleSignup(req, res) {
+  const body = await readJsonBody(req).catch(() => null);
+  if (!body) return sendJson(res, 400, { error: 'Invalid request.' });
+
+  const username = String(body.username || '').trim();
+  const email = String(body.email || '').trim();
+  const password = String(body.password || '');
+
+  const uErr = authlib.usernameIssue(username);
+  if (uErr) return sendJson(res, 400, { error: uErr });
+  if (!authlib.isValidEmail(email)) return sendJson(res, 400, { error: 'Enter a valid email address.' });
+  const pErr = authlib.passwordIssue(password);
+  if (pErr) return sendJson(res, 400, { error: pErr });
+
+  if (store.findByUsername(username)) return sendJson(res, 409, { error: 'That User ID is already taken.' });
+  if (store.findByEmail(email)) return sendJson(res, 409, { error: 'An account with that email already exists.' });
+
+  const user = store.createUser({ username, email, passwordHash: authlib.hashPassword(password) });
+  setSessionCookie(res, store.createSession(user.id));
+  return sendJson(res, 201, { user: publicUser(user) });
+}
+
+async function handleLogin(req, res) {
+  const body = await readJsonBody(req).catch(() => null);
+  if (!body) return sendJson(res, 400, { error: 'Invalid request.' });
+
+  const identifier = String(body.identifier || '').trim();
+  const password = String(body.password || '');
+  if (!identifier || !password) return sendJson(res, 400, { error: 'Enter your User ID / email and password.' });
+
+  const user = authlib.isValidEmail(identifier)
+    ? store.findByEmail(identifier)
+    : store.findByUsername(identifier);
+
+  // Generic message — don't reveal whether the account exists.
+  if (!user || !authlib.verifyPassword(password, user.passwordHash)) {
+    return sendJson(res, 401, { error: 'Invalid credentials.' });
+  }
+  setSessionCookie(res, store.createSession(user.id));
+  return sendJson(res, 200, { user: publicUser(user) });
+}
+
+function handleLogout(req, res) {
+  const sid = parseCookies(req).sid;
+  if (sid) store.deleteSession(sid);
+  clearSessionCookie(res);
+  return sendJson(res, 200, { ok: true });
+}
+
+function handleMe(req, res) {
+  const user = currentUser(req);
+  if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
+  return sendJson(res, 200, { user: publicUser(user) });
+}
+
+async function handleForgot(req, res) {
+  const body = await readJsonBody(req).catch(() => null);
+  if (!body) return sendJson(res, 400, { error: 'Invalid request.' });
+  const email = String(body.email || '').trim();
+
+  const user = authlib.isValidEmail(email) ? store.findByEmail(email) : null;
+  let devResetLink;
+  if (user) {
+    const token = store.createReset(user.id);
+    const link = `http://${req.headers.host || 'localhost'}/?token=${token}`;
+    await mailer.sendPasswordReset(user.email, link);
+    if (!IS_PROD) devResetLink = link; // surfaced only in dev for testing
+  }
+  // Always return success — never reveal whether the email is registered.
+  return sendJson(res, 200, { ok: true, devResetLink });
+}
+
+async function handleReset(req, res) {
+  const body = await readJsonBody(req).catch(() => null);
+  if (!body) return sendJson(res, 400, { error: 'Invalid request.' });
+  const token = String(body.token || '');
+  const password = String(body.password || '');
+
+  const pErr = authlib.passwordIssue(password);
+  if (pErr) return sendJson(res, 400, { error: pErr });
+
+  const reset = store.getReset(token);
+  if (!reset) return sendJson(res, 400, { error: 'This reset link is invalid or has expired.' });
+
+  store.updateUser(reset.userId, { passwordHash: authlib.hashPassword(password) });
+  store.deleteReset(token);
+  store.deleteSessionsForUser(reset.userId); // force re-login everywhere
+  return sendJson(res, 200, { ok: true });
+}
+
+// ---- Plans & subscription -------------------------------------------------
+
+function handlePlans(req, res) {
+  return sendJson(res, 200, {
+    states: plans.STATES.map((s) => ({ code: s.code, name: s.name, counties: s.counties })),
+    tiers: plans.TIERS,
+    maxCounties: plans.MAX_COUNTIES,
+  });
+}
+
+function handleGetSubscription(req, res) {
+  const user = currentUser(req);
+  if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
+  return sendJson(res, 200, { subscription: user.subscription || null });
+}
+
+async function handleSetSubscription(req, res) {
+  const user = currentUser(req);
+  if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
+
+  const body = await readJsonBody(req).catch(() => null);
+  if (!body) return sendJson(res, 400, { error: 'Invalid request.' });
+
+  const stateCode = String(body.state || '').trim().toUpperCase();
+  const stateDef = plans.STATES.find((s) => s.code === stateCode);
+  if (!stateDef) return sendJson(res, 400, { error: 'Only California (CA) is available right now.' });
+
+  const requested = Array.isArray(body.counties) ? body.counties.map((c) => String(c).trim()) : [];
+  const valid = stateDef.counties;
+  const selected = [...new Set(requested)].filter((c) => valid.includes(c));
+
+  if (selected.length < 1) return sendJson(res, 400, { error: 'Select at least one county.' });
+  if (selected.length > plans.MAX_COUNTIES) {
+    return sendJson(res, 400, { error: `Select at most ${plans.MAX_COUNTIES} counties.` });
+  }
+  const priceMonthly = plans.priceFor(selected.length);
+  if (priceMonthly == null) return sendJson(res, 400, { error: 'No plan for that number of counties.' });
+
+  const subscription = {
+    state: stateCode,
+    counties: selected.sort(),
+    priceMonthly,
+    updatedAt: new Date().toISOString(),
+  };
+  store.updateUser(user.id, { subscription });
+  return sendJson(res, 200, { subscription });
+}
+
 function serveStatic(req, res, pathname) {
   let rel = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
   // Prevent path traversal.
@@ -442,12 +630,40 @@ function serveStatic(req, res, pathname) {
   });
 }
 
+function redirect(res, location) {
+  res.writeHead(302, { Location: location });
+  res.end();
+}
+
 const server = http.createServer((req, res) => {
   const urlObj = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-  if (urlObj.pathname === '/api/hospitals') {
-    return handleApi(req, res, urlObj);
+  const { pathname } = urlObj;
+  const method = req.method;
+
+  // --- Page routing: login is the landing page ---
+  if (pathname === '/') {
+    return currentUser(req) ? redirect(res, '/app') : serveStatic(req, res, '/index.html');
   }
-  if (urlObj.pathname === '/api/facility-types') {
+  if (pathname === '/app') {
+    return currentUser(req) ? serveStatic(req, res, '/app.html') : redirect(res, '/');
+  }
+
+  // --- Auth API (public) ---
+  if (pathname === '/api/auth/signup' && method === 'POST') return handleSignup(req, res);
+  if (pathname === '/api/auth/login' && method === 'POST') return handleLogin(req, res);
+  if (pathname === '/api/auth/logout' && method === 'POST') return handleLogout(req, res);
+  if (pathname === '/api/auth/me') return handleMe(req, res);
+  if (pathname === '/api/auth/forgot' && method === 'POST') return handleForgot(req, res);
+  if (pathname === '/api/auth/reset' && method === 'POST') return handleReset(req, res);
+
+  // --- Plans (public) and subscription (auth) ---
+  if (pathname === '/api/plans') return handlePlans(req, res);
+  if (pathname === '/api/subscription' && method === 'GET') return handleGetSubscription(req, res);
+  if (pathname === '/api/subscription' && method === 'POST') return handleSetSubscription(req, res);
+
+  // --- Data API (requires login + an active subscription) ---
+  if (pathname === '/api/facility-types') {
+    if (!currentUser(req)) return sendJson(res, 401, { error: 'Please log in.' });
     const types = Object.entries(FACILITY_TYPES).map(([id, t]) => ({
       id,
       label: t.label,
@@ -456,12 +672,26 @@ const server = http.createServer((req, res) => {
     }));
     return sendJson(res, 200, { types, default: DEFAULT_TYPE });
   }
-  if (urlObj.pathname === '/api/strategy' && req.method === 'POST') {
+  if (pathname === '/api/hospitals') {
+    const user = currentUser(req);
+    if (!user) return sendJson(res, 401, { error: 'Please log in.' });
+    if (!hasActiveSub(user)) {
+      return sendJson(res, 403, { error: 'Select at least one county to access referral-source data.' });
+    }
+    return handleApi(req, res, urlObj);
+  }
+  if (pathname === '/api/strategy' && method === 'POST') {
+    const user = currentUser(req);
+    if (!user) return sendJson(res, 401, { error: 'Please log in.' });
+    if (!hasActiveSub(user)) {
+      return sendJson(res, 403, { error: 'Select at least one county to access this feature.' });
+    }
     return handleStrategy(req, res);
   }
-  return serveStatic(req, res, urlObj.pathname);
+
+  return serveStatic(req, res, pathname);
 });
 
 server.listen(PORT, () => {
-  console.log(`Hospital Finder running at http://localhost:${PORT}`);
+  console.log(`Referral Source Finder running at http://localhost:${PORT}`);
 });

@@ -6,18 +6,34 @@ A playbook for building a repeatable pipeline of residents/clients, plus a compr
 
 ## 🏥 Referral Source Finder app (included in this repo)
 
-A small web app that turns a **city or ZIP code** into a list of nearby **Tier 1 referral sources** — **hospitals**, **skilled nursing facilities (SNFs)**, and **hospice & home-health agencies** (see §2–§3). Pick the source type, then research and plan outreach for each result. Useful for fast Source Discovery.
+A web app with **accounts and a county-based subscription**, gating a finder that turns a **city or ZIP code** into a list of nearby **Tier 1 referral sources** — **hospitals**, **skilled nursing facilities (SNFs)**, and **hospice & home-health agencies** (see §2–§3).
 
 **Run it:**
 
 ```bash
 npm start          # or: node server.js
-# then open http://localhost:3000
+# then open http://localhost:3000  → you land on the login page
 ```
 
-- **No dependencies, no build step, no API key.** Requires Node 18+.
+- **No build step, no dependencies for the core app** (auth, accounts, subscription, and finder all use Node's built-ins). The AI feature (below) is the only thing needing an install + key. Requires Node 18+.
+
+### 🔑 Accounts, login & subscription
+
+- **Login is the landing page.** New users create an account with a **User ID**, a valid **email**, and a **password** (min 8 chars, letter + number). Standard flows included: log in (by User ID *or* email), log out, and **forgot/reset password**.
+- After login, the dashboard lets a user pick a **state** (CA only for now) and **counties** (all 58 CA counties), with **live monthly pricing**:
+
+  | Counties | Price / month |
+  |---|---|
+  | 1 | $299 |
+  | 2 | $399 |
+  | 3 | $499 |
+
+- Saving the coverage **unlocks** the finder and AI tools. The data APIs require both a logged-in session and an active subscription (≥1 county).
+- **How it's built:** passwords are hashed with Node's `crypto` **scrypt** (salted, constant-time compare); sessions are **HttpOnly cookies** backed by a small **JSON file store** (`data/db.json`, gitignored, atomic writes — swap for SQLite/Postgres later). Set `NODE_ENV=production` to add the `Secure` cookie flag.
+- **Forgot-password email:** no email provider is wired up, so the reset link is **logged to the server console** (and shown on-screen in dev for testing). For production, implement `lib/mailer.js → sendPasswordReset()` with a real provider and remove the dev link.
+- **Payments:** plan selection + pricing are implemented and the subscription is saved, but **no payment processor is integrated** — wiring up Stripe (or similar) to actually charge is a separate, intentional next step.
 - **Data source:** the free federal **NPI Registry (NPPES)** API. Live, nationwide.
-- **How it works:** a tiny Node server (`server.js`) proxies the NPPES API (which has no CORS headers), filters to the right NPI taxonomies for the chosen **source type**, de-duplicates, caches for 10 min, and serves the frontend in `public/`.
+- **How it works:** a tiny Node server (`server.js`) handles auth + subscriptions and proxies the NPPES API (which has no CORS headers), filtering to the right NPI taxonomies for the chosen **source type**, de-duplicating, caching for 10 min, and serving the `public/` frontend (`index.html` = login, `app.html` = dashboard).
 - **Source types:** Hospitals · Skilled Nursing (SNF) · Hospice & Home Health. Each maps to its own taxonomies and the staff roles you'd approach; SNF and hospice are flagged **reciprocal** (you can refer families to them too), which the strategist leans into.
 - **Search by:** city (with a state selector, default CA) or a 5-digit ZIP. County input is not yet supported.
 - **Returns only public organizational data** — hospital name, address, phone, type, NPI, and a map link. **No patient data / PHI is ever requested or stored.** Approach hospitals through their *Case Management / Discharge Planning* department, and verify every contact detail on the hospital's official site before outreach.

@@ -3,61 +3,71 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Hospital Finder — Referral Source Discovery</title>
+    <title>Sign in — Referral Source Finder</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
-  <body>
-    <header class="site-header">
-      <h1>🏥 Referral Source Finder</h1>
-      <p class="subtitle">
-        Find hospitals, skilled nursing facilities, and hospice/home-health
-        agencies by city or ZIP to build your Tier&nbsp;1 referral pipeline.
-        Data from the federal NPI Registry (NPPES).
-      </p>
-    </header>
+  <body class="auth-body">
+    <main class="auth-wrap">
+      <div class="auth-card">
+        <h1 class="auth-brand">🏥 Referral Source Finder</h1>
+        <p class="auth-tagline">Senior placement referral-source intelligence for California.</p>
 
-    <main>
-      <form id="search-form" class="search-card" autocomplete="off">
-        <div class="field">
-          <label for="facility-type">Source type</label>
-          <select id="facility-type" name="facility-type"></select>
+        <div class="auth-tabs" role="tablist">
+          <button class="auth-tab active" data-view="login" type="button">Log in</button>
+          <button class="auth-tab" data-view="signup" type="button">Create account</button>
         </div>
-        <div class="field field-grow">
-          <label for="location">City or ZIP code</label>
-          <input
-            id="location"
-            name="location"
-            type="text"
-            placeholder="e.g. Sacramento  or  95814"
-            required
-          />
-        </div>
-        <div class="field">
-          <label for="state">State</label>
-          <select id="state" name="state"></select>
-          <span class="hint">Ignored when searching by ZIP</span>
-        </div>
-        <button type="submit" id="search-btn">Search</button>
-      </form>
 
-      <section id="status" class="status" aria-live="polite"></section>
-      <section id="results" class="results"></section>
+        <p id="auth-msg" class="auth-msg" aria-live="polite"></p>
+
+        <!-- Login -->
+        <form id="login-form" class="auth-form" autocomplete="on">
+          <label for="login-id">User ID or email</label>
+          <input id="login-id" name="identifier" type="text" required autocomplete="username" />
+
+          <label for="login-pw">Password</label>
+          <input id="login-pw" name="password" type="password" required autocomplete="current-password" />
+
+          <button type="submit" class="primary-btn full">Log in</button>
+          <button type="button" class="link-btn" data-view="forgot">Forgot password?</button>
+        </form>
+
+        <!-- Sign up -->
+        <form id="signup-form" class="auth-form" hidden autocomplete="on">
+          <label for="su-user">User ID</label>
+          <input id="su-user" name="username" type="text" required autocomplete="username" />
+          <span class="hint">3–32 chars: letters, numbers, dot, underscore, hyphen.</span>
+
+          <label for="su-email">Email</label>
+          <input id="su-email" name="email" type="email" required autocomplete="email" />
+
+          <label for="su-pw">Password</label>
+          <input id="su-pw" name="password" type="password" required autocomplete="new-password" />
+          <span class="hint">At least 8 characters, with a letter and a number.</span>
+
+          <button type="submit" class="primary-btn full">Create account</button>
+        </form>
+
+        <!-- Forgot password -->
+        <form id="forgot-form" class="auth-form" hidden>
+          <p class="auth-sub">Enter your email and we'll send a reset link.</p>
+          <label for="fp-email">Email</label>
+          <input id="fp-email" name="email" type="email" required autocomplete="email" />
+          <button type="submit" class="primary-btn full">Send reset link</button>
+          <button type="button" class="link-btn" data-view="login">← Back to log in</button>
+        </form>
+
+        <!-- Reset password (shown when ?token= is present) -->
+        <form id="reset-form" class="auth-form" hidden>
+          <p class="auth-sub">Choose a new password.</p>
+          <label for="rp-pw">New password</label>
+          <input id="rp-pw" name="password" type="password" required autocomplete="new-password" />
+          <span class="hint">At least 8 characters, with a letter and a number.</span>
+          <button type="submit" class="primary-btn full">Set new password</button>
+          <button type="button" class="link-btn" data-view="login">← Back to log in</button>
+        </form>
+      </div>
     </main>
 
-    <footer class="site-footer">
-      <p>
-        <strong>Compliance:</strong> Results are public organizational data only
-        (name, address, phone, type) — no patient data / PHI. Approach each source
-        through the right department (Case Management, Social Work, or Admissions),
-        and verify all contact details on the organization's official site before
-        outreach. Respect each facility's vendor/solicitation policy.
-      </p>
-      <p class="muted">
-        Source: NPI Registry (NPPES), U.S. Centers for Medicare &amp; Medicaid
-        Services. Not legal advice.
-      </p>
-    </footer>
-
-    <script src="/app.js"></script>
+    <script src="/auth.js"></script>
   </body>
 </html>
