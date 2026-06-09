@@ -23,6 +23,7 @@ const authlib = require('./lib/auth');
 const plans = require('./lib/plans');
 const mailer = require('./lib/mailer');
 const profileLib = require('./lib/profile');
+const deckLib = require('./lib/deck');
 
 const IS_PROD = process.env.NODE_ENV === 'production';
 
@@ -351,6 +352,18 @@ const STRATEGY_SCHEMA = {
       },
     },
     suggestedFirstStep: { type: 'string' },
+    savings: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        driver: { type: 'string' },
+        avoidedDaysPerCase: { type: 'number' },
+        casesPerMonth: { type: 'number' },
+        costPerDay: { type: 'number' },
+        disclaimer: { type: 'string' },
+      },
+      required: ['driver', 'avoidedDaysPerCase', 'casesPerMonth', 'costPerDay', 'disclaimer'],
+    },
     emailDraft: {
       type: 'object',
       additionalProperties: false,
@@ -371,10 +384,32 @@ const STRATEGY_SCHEMA = {
     'talkingPoints',
     'objections',
     'suggestedFirstStep',
+    'savings',
     'emailDraft',
     'complianceNotes',
   ],
 };
+
+// Compute savings totals deterministically from the model's benchmark inputs,
+// so the math is always internally consistent (the model supplies the
+// industry-estimate inputs; code does the arithmetic).
+function computeSavings(s) {
+  if (!s) return null;
+  const days = Number(s.avoidedDaysPerCase);
+  const cases = Number(s.casesPerMonth);
+  const cost = Number(s.costPerDay);
+  if (![days, cases, cost].every((n) => Number.isFinite(n) && n > 0)) return null;
+  const monthly = Math.round(days * cases * cost);
+  return {
+    driver: String(s.driver || ''),
+    avoidedDaysPerCase: days,
+    casesPerMonth: cases,
+    costPerDay: cost,
+    estimatedMonthly: monthly,
+    estimatedAnnual: monthly * 12,
+    disclaimer: String(s.disclaimer || ''),
+  };
+}
 
 // Fallback agency context when an agency hasn't built its profile yet.
 function fallbackAgencyContext() {
@@ -422,6 +457,7 @@ Produce a tailored, truthful case:
 - talkingPoints: 4-6 crisp points for a first meeting, framed around what THIS role cares about${facilityType.reciprocal ? ' (including reciprocal referrals we can send them)' : ''}.
 - objections: the 3 likeliest objections this contact would raise (e.g., "we already use a national referral site", "how are you paid / is this unbiased", "can you really place our hardest cases?") with honest {objection, response} — include the fee disclosure.
 - suggestedFirstStep: the single best low-friction next step (e.g., free in-service / lunch-and-learn, sign a referral agreement, pilot on the next few hard-to-place discharges) and why.
+- savings: an ILLUSTRATIVE cost-savings estimate for the organization, framed as an industry estimate to validate — never as guaranteed. Provide conservative, clearly-labeled benchmark INPUTS only: {driver (what we reduce, e.g. "avoidable bed-days from hard-to-place Medi-Cal discharges"), avoidedDaysPerCase (avoidable inpatient days removed per hard placement we accelerate — a realistic single number), casesPerMonth (hard-to-place discharges/month we could take — realistic for this org's size), costPerDay (a commonly-cited cost per avoidable inpatient day, typically ~$2,000-$3,000 — pick one conservative value), disclaimer (one sentence stating this is an illustrative industry estimate to validate against their own data, not a guaranteed result)}. Do not compute totals; the system computes them from your inputs.
 - emailDraft: a short, CAN-SPAM-compliant first-contact email (subject + body) to this contact. Identify the sender, be specific to their pains, offer value, no hard sell.
 - complianceNotes: reminders specific to this outreach (PHI/consent, vendor registration, California referral-source disclosures).`;
   return callClaude(client, { system, user, schema: STRATEGY_SCHEMA, maxTokens: 3500 });
@@ -455,6 +491,7 @@ async function handleStrategy(req, res) {
     // Agent 1 → pain points, then Agent 2 → profile-matched case built on them.
     const { painPoints } = await runPainPointAnalyst(client, facility, role, facilityType);
     const strategy = await runCaseGenerator(client, facility, role, painPoints || [], facilityType, agencyContext);
+    strategy.savingsComputed = computeSavings(strategy.savings);
     return sendJson(res, 200, { facility: facility.name, role, painPoints, strategy, usedProfile });
   } catch (err) {
     if (err instanceof StrategyUnavailable) {
@@ -464,6 +501,49 @@ async function handleStrategy(req, res) {
       error: 'The analysis service failed. Check your API key and network, then retry.',
       detail: String(err.message || err),
     });
+  }
+}
+
+// Build a PowerPoint pitch deck from an already-generated case (no model call).
+async function handleDeck(req, res) {
+  const user = currentUser(req);
+  const body = await readJsonBody(req).catch(() => null);
+  if (!body) return sendJson(res, 400, { error: 'Invalid request.' });
+
+  const facility = body.hospital || body.facility;
+  const role = body.role;
+  const facilityType = FACILITY_TYPES[body.facilityType] || FACILITY_TYPES[DEFAULT_TYPE];
+  const strategy = body.strategy || {};
+  const painPoints = body.painPoints || [];
+  if (!facility || !facility.name) return sendJson(res, 400, { error: 'Missing facility details.' });
+  if (!role) return sendJson(res, 400, { error: 'Missing role.' });
+
+  // Recompute savings server-side from the model's inputs (don't trust client math).
+  const savings = computeSavings(strategy.savings);
+
+  try {
+    const buffer = await deckLib.buildDeck({
+      agency: AGENCY.agencyName,
+      contact: user ? user.email : '',
+      hospital: facility,
+      role,
+      facilityLabel: facilityType.label,
+      painPoints,
+      strategy,
+      savings,
+    });
+    const safeName = String(facility.name).replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'deck';
+    res.writeHead(200, {
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      'Content-Disposition': `attachment; filename="proposal-${safeName}.pptx"`,
+      'Content-Length': buffer.length,
+    });
+    return res.end(buffer);
+  } catch (err) {
+    if (err instanceof deckLib.DeckUnavailable) {
+      return sendJson(res, 503, { error: err.message, needsSetup: true });
+    }
+    return sendJson(res, 500, { error: 'Could not build the deck.', detail: String(err.message || err) });
   }
 }
 
@@ -747,6 +827,14 @@ const server = http.createServer((req, res) => {
       return sendJson(res, 403, { error: 'Select at least one county to access this feature.' });
     }
     return handleStrategy(req, res);
+  }
+  if (pathname === '/api/deck' && method === 'POST') {
+    const user = currentUser(req);
+    if (!user) return sendJson(res, 401, { error: 'Please log in.' });
+    if (!hasActiveSub(user)) {
+      return sendJson(res, 403, { error: 'Select at least one county to access this feature.' });
+    }
+    return handleDeck(req, res);
   }
 
   return serveStatic(req, res, pathname);

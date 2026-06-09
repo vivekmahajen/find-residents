@@ -57,11 +57,20 @@ For any source in the results, pick the **role you're contacting** (the dropdown
 
    It uses your profile when you've built one (badged *"using your profile"*) and falls back to conservative defaults otherwise. For reciprocal sources (SNF, hospice) it leads with two-way partnership.
 
+   The case also includes an **illustrative savings estimate** — the agent supplies conservative, clearly-labeled industry-benchmark inputs (avoidable bed-days per hard placement × hard-to-place cases/month × cost per inpatient day) and the server computes the monthly/annual totals deterministically, always framed as an estimate to validate (never guaranteed).
+
+### 📊 PowerPoint pitch deck
+
+Below each generated case, **"Build PowerPoint"** downloads a tailored `.pptx` proposal for that hospital: title, executive summary, their pain points, the capability **match (Strong/Partial/Gap)**, the **estimated-savings** slide, why-us + objection handling, and the ask + compliance disclosures.
+
+- Generated server-side with **`pptxgenjs`** (lazy-loaded — `npm install pptxgenjs`); the deck reuses the already-generated case, so it makes **no extra model call**.
+- Like the AI feature, it degrades gracefully: if `pptxgenjs` isn't installed it returns a clear "run npm install" message instead of failing.
+
 **Setup (only needed for this feature):**
 
 ```bash
-npm install @anthropic-ai/sdk      # the hospital search itself needs no install
-export ANTHROPIC_API_KEY=sk-ant-...
+npm install @anthropic-ai/sdk pptxgenjs   # SDK = AI case generator; pptxgenjs = PowerPoint export
+export ANTHROPIC_API_KEY=sk-ant-...        # the source search itself needs neither
 npm start
 ```
 

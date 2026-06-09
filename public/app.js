@@ -66,6 +66,10 @@ function escapeHtml(str) {
   }[c]));
 }
 
+function fmtMoney(n) {
+  return '$' + Number(n || 0).toLocaleString('en-US');
+}
+
 function formatPhone(raw) {
   const digits = String(raw || '').replace(/\D/g, '');
   if (digits.length === 10) {
@@ -154,7 +158,7 @@ async function runStrategy(facility, role, facilityType, btn, panel) {
       panel.innerHTML = `<p class="panel-error">${escapeHtml(data.error || 'Something went wrong.')}</p>`;
       return;
     }
-    renderStrategy(panel, role, data);
+    renderStrategy(panel, role, data, facility, facilityType);
   } catch (err) {
     panel.innerHTML = `<p class="panel-error">Network error — is the server running? Try again.</p>`;
   } finally {
@@ -165,11 +169,12 @@ async function runStrategy(facility, role, facilityType, btn, panel) {
 
 const SEVERITY_ORDER = { high: 0, medium: 1, low: 2 };
 
-function renderStrategy(panel, role, data) {
+function renderStrategy(panel, role, data, facility, facilityType) {
   const painPoints = (data.painPoints || [])
     .slice()
     .sort((a, b) => (SEVERITY_ORDER[a.severity] ?? 9) - (SEVERITY_ORDER[b.severity] ?? 9));
   const s = data.strategy || {};
+  const sv = s.savingsComputed;
 
   const painHtml = painPoints
     .map(
@@ -236,6 +241,16 @@ function renderStrategy(panel, role, data) {
       ${objectionHtml ? `<h5>Objection handling</h5><ul class="value-list">${objectionHtml}</ul>` : ''}
       ${s.suggestedFirstStep ? `<h5>Best first step</h5><p>${escapeHtml(s.suggestedFirstStep)}</p>` : ''}
       ${
+        sv
+          ? `<h5>Estimated impact (illustrative)</h5>
+             <div class="savings">
+               <div class="savings-figure">${fmtMoney(sv.estimatedMonthly)} / month <span class="muted">· ≈ ${fmtMoney(sv.estimatedAnnual)} / year</span></div>
+               <p class="savings-basis">${escapeHtml(sv.driver || 'avoidable bed-days')} — ${sv.avoidedDaysPerCase} day(s)/case × ${sv.casesPerMonth} case(s)/mo × ${fmtMoney(sv.costPerDay)}/inpatient day</p>
+               <p class="savings-disclaimer">${escapeHtml(sv.disclaimer || 'Illustrative industry estimate to validate against your own data — not a guaranteed result.')}</p>
+             </div>`
+          : ''
+      }
+      ${
         email.subject || email.body
           ? `<div class="email-head">
                <h5>Draft email</h5>
@@ -248,12 +263,67 @@ function renderStrategy(panel, role, data) {
           : ''
       }
       ${complianceHtml ? `<h5>Compliance reminders</h5><ul class="bullet compliance">${complianceHtml}</ul>` : ''}
+      <div class="deck-bar">
+        <button type="button" class="deck-btn">📊 Build PowerPoint</button>
+        <span class="deck-status"></span>
+      </div>
     </div>
   `;
 
   const copyBtn = panel.querySelector('.copy-btn');
   if (copyBtn) {
     copyBtn.addEventListener('click', () => copyEmail(copyBtn, email));
+  }
+
+  const deckBtn = panel.querySelector('.deck-btn');
+  const deckStatus = panel.querySelector('.deck-status');
+  if (deckBtn) {
+    deckBtn.addEventListener('click', () =>
+      buildDeck(deckBtn, deckStatus, {
+        hospital: facility,
+        role,
+        facilityType,
+        painPoints: data.painPoints,
+        strategy: data.strategy,
+      })
+    );
+  }
+}
+
+async function buildDeck(btn, statusEl, payload) {
+  btn.disabled = true;
+  const original = btn.textContent;
+  btn.textContent = 'Building…';
+  if (statusEl) statusEl.textContent = '';
+  try {
+    const resp = await fetch('/api/deck', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!resp.ok) {
+      const d = await resp.json().catch(() => ({}));
+      if (statusEl) statusEl.textContent = d.error || 'Could not build the deck.';
+      return;
+    }
+    const blob = await resp.blob();
+    const cd = resp.headers.get('Content-Disposition') || '';
+    const m = cd.match(/filename="?([^"]+)"?/);
+    const filename = m ? m[1] : 'proposal.pptx';
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    if (statusEl) statusEl.textContent = 'Downloaded ✓';
+  } catch (err) {
+    if (statusEl) statusEl.textContent = 'Network error building the deck.';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = original;
   }
 }
 
