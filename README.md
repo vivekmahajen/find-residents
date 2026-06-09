@@ -56,7 +56,7 @@ Billing is a **credit model** (`lib/pricing.js`). A plan grants monthly credits;
 
 | Plan | Monthly | Annual (−20%) | Credits | ~Decks | Eff. $/deck |
 |---|---|---|---|---|---|
-| Free | $0 | — | 30 (one-time) | ~1 | — |
+| Free | $0 | — | 100 (one-time) | ~3 | — |
 | Starter | $25 | $20/mo | 300 | ~10 | $2.50 |
 | Pro | $59 | $47/mo | 750 | ~25 | $2.36 |
 | Business | $149 | $119/mo | 2,000 | ~66 | $2.24 |
