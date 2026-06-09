@@ -25,6 +25,7 @@ const mailer = require('./lib/mailer');
 const profileLib = require('./lib/profile');
 const deckLib = require('./lib/deck');
 const pricing = require('./lib/pricing');
+const stripeLib = require('./lib/stripe');
 
 const IS_PROD = process.env.NODE_ENV === 'production';
 
@@ -786,7 +787,13 @@ function ensureAccount(user) {
 }
 
 function handlePricing(req, res) {
-  return sendJson(res, 200, pricing.publicModel());
+  return sendJson(res, 200, { ...pricing.publicModel(), stripeEnabled: stripeLib.enabled() });
+}
+
+function baseUrlFrom(req) {
+  if (process.env.BASE_URL) return process.env.BASE_URL.replace(/\/+$/, '');
+  const proto = req.headers['x-forwarded-proto'] || (IS_PROD ? 'https' : 'http');
+  return `${proto}://${req.headers.host || 'localhost'}`;
 }
 
 function handleGetAccount(req, res) {
@@ -805,6 +812,10 @@ async function handleSetPlan(req, res) {
   const plan = pricing.planById(String(body.plan || ''));
   if (!plan) return sendJson(res, 400, { error: 'Unknown plan.' });
   if (plan.custom) return sendJson(res, 400, { error: 'Contact sales to set up an Enterprise plan.' });
+  // With Stripe live, paid plans must go through checkout; Free is a free downgrade.
+  if (stripeLib.enabled() && plan.monthly > 0) {
+    return sendJson(res, 400, { error: 'Use secure checkout to subscribe to a paid plan.' });
+  }
   const acct = ensureAccount(user);
   pricing.setPlan(acct, plan.id, !!body.annual);
   store.updateUser(user.id, { account: acct });
@@ -819,10 +830,115 @@ async function handleTopup(req, res) {
   const credits = Number(body.credits);
   const pack = pricing.TOPUP_PACKS.find((t) => t.credits === credits);
   if (!pack) return sendJson(res, 400, { error: 'Unknown top-up pack.' });
+  if (stripeLib.enabled()) {
+    return sendJson(res, 400, { error: 'Use secure checkout to buy credits.' });
+  }
   const acct = ensureAccount(user);
   pricing.addTopup(acct, pack.credits);
   store.updateUser(user.id, { account: acct });
   return sendJson(res, 200, { account: pricing.accountView(acct), purchased: pack });
+}
+
+// ---- Stripe checkout & webhook --------------------------------------------
+
+async function handleCheckoutPlan(req, res) {
+  const user = currentUser(req);
+  if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
+  const body = await readJsonBody(req).catch(() => null);
+  if (!body) return sendJson(res, 400, { error: 'Invalid request.' });
+  const plan = pricing.planById(String(body.plan || ''));
+  if (!plan || plan.custom || !(plan.monthly > 0)) {
+    return sendJson(res, 400, { error: 'Choose a paid plan to check out.' });
+  }
+  ensureAccount(user);
+  try {
+    const url = await stripeLib.createPlanCheckout({
+      user, plan, annual: !!body.annual, baseUrl: baseUrlFrom(req),
+    });
+    return sendJson(res, 200, { url });
+  } catch (err) {
+    if (err instanceof stripeLib.StripeUnavailable) {
+      return sendJson(res, 503, { error: err.message, needsSetup: true });
+    }
+    return sendJson(res, 502, { error: 'Could not start checkout.', detail: String(err.message || err) });
+  }
+}
+
+async function handleCheckoutTopup(req, res) {
+  const user = currentUser(req);
+  if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
+  const body = await readJsonBody(req).catch(() => null);
+  if (!body) return sendJson(res, 400, { error: 'Invalid request.' });
+  const pack = pricing.TOPUP_PACKS.find((t) => t.credits === Number(body.credits));
+  if (!pack) return sendJson(res, 400, { error: 'Unknown top-up pack.' });
+  ensureAccount(user);
+  try {
+    const url = await stripeLib.createTopupCheckout({ user, pack, baseUrl: baseUrlFrom(req) });
+    return sendJson(res, 200, { url });
+  } catch (err) {
+    if (err instanceof stripeLib.StripeUnavailable) {
+      return sendJson(res, 503, { error: err.message, needsSetup: true });
+    }
+    return sendJson(res, 502, { error: 'Could not start checkout.', detail: String(err.message || err) });
+  }
+}
+
+function readRawBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+}
+
+// Grant entitlements after Stripe confirms payment. Idempotent enough for MVP.
+function fulfillStripeEvent(event) {
+  const obj = event.data.object;
+  if (event.type === 'checkout.session.completed') {
+    const md = obj.metadata || {};
+    const user = md.userId ? store.findById(md.userId) : null;
+    if (!user) return;
+    const acct = user.account || pricing.defaultAccount();
+    user.account = acct;
+    if (md.kind === 'plan') {
+      const plan = pricing.planById(md.planId);
+      if (plan) {
+        pricing.setPlan(acct, plan.id, md.annual === '1');
+        acct.stripeCustomerId = obj.customer || acct.stripeCustomerId;
+        acct.stripeSubscriptionId = obj.subscription || acct.stripeSubscriptionId;
+      }
+    } else if (md.kind === 'topup') {
+      const credits = Number(md.credits);
+      if (credits > 0) pricing.addTopup(acct, credits);
+    }
+    store.updateUser(user.id, { account: acct });
+  } else if (event.type === 'customer.subscription.deleted') {
+    const md = obj.metadata || {};
+    const user = md.userId ? store.findById(md.userId) : null;
+    if (user && user.account) {
+      pricing.setPlan(user.account, 'free', false);
+      store.updateUser(user.id, { account: user.account });
+    }
+  }
+}
+
+async function handleStripeWebhook(req, res) {
+  let event;
+  try {
+    const raw = await readRawBody(req);
+    event = stripeLib.constructEvent(raw, req.headers['stripe-signature']);
+  } catch (err) {
+    res.writeHead(400);
+    return res.end(`Webhook error: ${err.message}`);
+  }
+  try {
+    fulfillStripeEvent(event);
+  } catch {
+    // Never fail the webhook on a fulfillment hiccup; Stripe will retry on non-2xx.
+  }
+  res.writeHead(200, { 'Content-Type': 'application/json' });
+  res.end('{"received":true}');
 }
 
 function serveStatic(req, res, pathname) {
@@ -884,6 +1000,11 @@ const server = http.createServer((req, res) => {
   if (pathname === '/api/account' && method === 'GET') return handleGetAccount(req, res);
   if (pathname === '/api/plan' && method === 'POST') return handleSetPlan(req, res);
   if (pathname === '/api/topup' && method === 'POST') return handleTopup(req, res);
+
+  // --- Stripe ---
+  if (pathname === '/api/stripe/webhook' && method === 'POST') return handleStripeWebhook(req, res);
+  if (pathname === '/api/checkout/plan' && method === 'POST') return handleCheckoutPlan(req, res);
+  if (pathname === '/api/checkout/topup' && method === 'POST') return handleCheckoutTopup(req, res);
 
   // --- Data API (requires login; AI deliverables consume credits) ---
   if (pathname === '/api/facility-types') {

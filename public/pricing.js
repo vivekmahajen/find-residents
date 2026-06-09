@@ -91,7 +91,21 @@
       <p>${MODEL.rolloverPolicy} Annual plans save ${MODEL.annualDiscountPct}%. On paid plans, work beyond your monthly credits is billed at the overage rate (${MODEL.overageMode}); the Free plan stops when credits run out.</p>`;
   }
 
+  const stripeOn = () => MODEL && MODEL.stripeEnabled;
+
   async function choosePlan(planId) {
+    // Paid plans with Stripe live → hosted checkout. Free / no-Stripe → instant.
+    if (stripeOn() && planId !== 'free') {
+      statusEl.textContent = 'Redirecting to secure checkout…';
+      const resp = await fetch('/api/checkout/plan', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan: planId, annual: annualToggle.checked }),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (resp.ok && data.url) { window.location.href = data.url; return; }
+      statusEl.textContent = data.error || 'Could not start checkout.';
+      return;
+    }
     statusEl.textContent = 'Updating plan…';
     const resp = await fetch('/api/plan', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -105,6 +119,17 @@
   }
 
   async function buyTopup(credits) {
+    if (stripeOn()) {
+      statusEl.textContent = 'Redirecting to secure checkout…';
+      const resp = await fetch('/api/checkout/topup', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credits }),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (resp.ok && data.url) { window.location.href = data.url; return; }
+      statusEl.textContent = data.error || 'Could not start checkout.';
+      return;
+    }
     statusEl.textContent = 'Adding credits…';
     const resp = await fetch('/api/topup', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -115,6 +140,28 @@
     account = data.account; publish();
     renderBalance();
     statusEl.textContent = `Added ${credits.toLocaleString()} credits.`;
+  }
+
+  // After returning from Stripe Checkout, fulfillment happens via webhook
+  // (a few seconds). Refresh the balance a few times so it reflects soon.
+  function handleCheckoutReturn() {
+    const params = new URLSearchParams(window.location.search);
+    const r = params.get('checkout');
+    if (!r) return;
+    history.replaceState({}, '', '/app'); // clean the URL
+    if (r === 'cancel') { statusEl.textContent = 'Checkout canceled.'; return; }
+    if (r === 'success') {
+      statusEl.textContent = 'Payment received — updating your account…';
+      let n = 0;
+      const tick = () => {
+        window.refreshAccount().then(() => {
+          renderLadder();
+          if (++n < 5) setTimeout(tick, 1500);
+          else statusEl.textContent = 'Account updated.';
+        });
+      };
+      setTimeout(tick, 1200);
+    }
   }
 
   // Called by app.js after an action returns an updated account, or to refresh.
@@ -146,6 +193,7 @@
       renderLadder();
       renderTopups();
       renderFaq();
+      handleCheckoutReturn();
     } catch {
       if (balanceEl) balanceEl.textContent = '';
     }

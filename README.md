@@ -41,7 +41,19 @@ Billing is a **credit model** (`lib/pricing.js`). A plan grants monthly credits;
 - **Top-up packs** (250/$25, 1,000/$90, 5,000/$400) carry over while subscribed; plan credits reset each cycle.
 - The dashboard shows your **balance**, the **tier ladder** (with an annual toggle and effective $/deck), top-ups, and a credits FAQ. Each AI button shows its credit cost and the balance updates after each action.
 - **Endpoints:** `GET /api/pricing` (public model), `GET /api/account`, `POST /api/plan`, `POST /api/topup`. Credits are enforced and charged server-side in `/api/strategy` and `/api/deck`.
-- **Payments:** plan selection, credit accounting, overage, and top-ups are implemented, but **no payment processor is integrated** — wiring Stripe to actually charge cards/meter overage is a separate, intentional next step.
+- **Payments — Stripe (optional).** When configured, paid plans and top-ups go through **Stripe Checkout** (hosted; no card data touches this app) and credits are granted only after Stripe confirms payment via webhook. When *not* configured, the app falls back to instant (no-charge) plan changes so it still runs locally.
+
+  Enable it by setting:
+  ```bash
+  npm install stripe
+  export STRIPE_SECRET_KEY=sk_test_...
+  export STRIPE_WEBHOOK_SECRET=whsec_...        # from `stripe listen` or the dashboard
+  export BASE_URL=https://your-app.example.com  # optional; else derived from the request
+  ```
+  - **Plans** → subscription Checkout (`/api/checkout/plan`); monthly or annual (−20%, billed yearly). **Top-ups** → one-time Checkout (`/api/checkout/topup`). Prices are built inline from `lib/pricing.js`, so no Stripe dashboard Price objects need pre-creating.
+  - **Webhook** at `POST /api/stripe/webhook` (signature-verified) fulfills `checkout.session.completed` (activate plan / add credits) and downgrades to Free on `customer.subscription.deleted`. Point your Stripe webhook there. Locally: `stripe listen --forward-to localhost:3000/api/stripe/webhook`.
+  - With Stripe live, the instant `/api/plan` and `/api/topup` endpoints refuse paid changes (Free downgrade still works), so credits can't be granted without payment.
+  - **Not yet wired:** charging the metered overage balance (`overageUsd`) back to the card — overage is tracked but not yet invoiced. Subscription **renewals** currently top up credits via the in-app 30-day cycle reset rather than the `invoice.paid` webhook.
 
 ### 🗺️ Data coverage (optional, free)
 
