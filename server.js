@@ -29,6 +29,8 @@ const stripeLib = require('./lib/stripe');
 const adminLib = require('./lib/admin');
 const redact = require('./lib/redact');
 const cryptoLib = require('./lib/crypto');
+const matcher = require('./lib/matcher');
+const csvLib = require('./lib/csv');
 
 const IS_PROD = process.env.NODE_ENV === 'production';
 
@@ -1069,6 +1071,168 @@ async function handleDeleteLead(req, res, id) {
   return sendJson(res, 200, { ok: true });
 }
 
+// ---- Facility inventory + resident matcher (Workstream 1) ------------------
+
+const FACILITY_TYPES_LIST = ['board_and_care_RCFE', 'assisted_living', 'memory_care', 'independent_living', 'SNF'];
+
+function arrField(x) {
+  if (Array.isArray(x)) return x.map((s) => String(s).trim()).filter(Boolean);
+  return String(x || '').split(/[;,|]/).map((s) => s.trim()).filter(Boolean);
+}
+function numField(x) {
+  if (x == null || x === '') return null;
+  const n = Number(String(x).replace(/[^0-9.]/g, ''));
+  return Number.isFinite(n) ? n : null;
+}
+function normalizeFacility(b, agencyId) {
+  return {
+    agencyId,
+    name: String(b.name || '').trim(),
+    type: String(b.type || '').trim(),
+    street: String(b.street || '').trim(),
+    city: String(b.city || '').trim(),
+    county: String(b.county || '').trim(),
+    zip: String(b.zip || '').trim(),
+    lat: numField(b.lat),
+    lng: numField(b.lng),
+    ca_license_number: String(b.ca_license_number || b.license || '').trim(),
+    license_status: String(b.license_status || '').trim(),
+    known_violations: String(b.known_violations || '').trim(),
+    capacity: numField(b.capacity),
+    availability_status: String(b.availability_status || 'unknown').trim().toLowerCase(),
+    availability_as_of: b.availability_as_of || null,
+    levels_of_care: arrField(b.levels_of_care),
+    payors_accepted: arrField(b.payors_accepted),
+    price_min: numField(b.price_min),
+    price_max: numField(b.price_max),
+    room_types: arrField(b.room_types),
+    languages: arrField(b.languages),
+    capabilities: arrField(b.capabilities),
+    amenities: arrField(b.amenities),
+    contact_name: String(b.contact_name || '').trim(),
+    contact_phone: String(b.contact_phone || '').trim(),
+    contact_email: String(b.contact_email || '').trim(),
+    fee_paid_by_facility: b.fee_paid_by_facility != null && b.fee_paid_by_facility !== '' ? b.fee_paid_by_facility : null,
+    notes: String(b.notes || '').trim(),
+    data_source: String(b.data_source || 'manual').trim(),
+    last_verified_at: b.last_verified_at || null,
+  };
+}
+
+async function handleListFacilities(req, res) {
+  const user = await currentUser(req);
+  if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
+  const facilities = await store.listFacilities(user.id);
+  return sendJson(res, 200, { facilities, types: FACILITY_TYPES_LIST });
+}
+
+async function handleCreateFacility(req, res) {
+  const user = await currentUser(req);
+  if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
+  const body = await readJsonBody(req).catch(() => null);
+  if (!body) return sendJson(res, 400, { error: 'Invalid request.' });
+  const fac = normalizeFacility(body, user.id);
+  if (!fac.name || !fac.type) return sendJson(res, 400, { error: 'Facility name and type are required.' });
+  const created = await store.createFacility(fac);
+  return sendJson(res, 201, { facility: created });
+}
+
+async function handleGetFacility(req, res, id) {
+  const user = await currentUser(req);
+  if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
+  const fac = await store.getFacility(id);
+  if (!fac || (fac.agencyId != null && fac.agencyId !== user.id)) return sendJson(res, 404, { error: 'Not found.' });
+  return sendJson(res, 200, { facility: fac });
+}
+
+async function handleUpdateFacility(req, res, id) {
+  const user = await currentUser(req);
+  if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
+  const fac = await store.getFacility(id);
+  if (!fac || fac.agencyId !== user.id) return sendJson(res, 404, { error: 'Not found.' }); // shared seed is read-only
+  const body = await readJsonBody(req).catch(() => null);
+  if (!body) return sendJson(res, 400, { error: 'Invalid request.' });
+  // Quick availability-only updates are allowed without re-sending everything.
+  const patch = Object.keys(body).length <= 2 && (body.availability_status || body.availability_as_of)
+    ? { availability_status: String(body.availability_status || fac.availability_status).toLowerCase(), availability_as_of: body.availability_as_of || Date.now() }
+    : { ...normalizeFacility(body, user.id) };
+  const updated = await store.updateFacility(id, patch);
+  return sendJson(res, 200, { facility: updated });
+}
+
+async function handleDeleteFacility(req, res, id) {
+  const user = await currentUser(req);
+  if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
+  const fac = await store.getFacility(id);
+  if (!fac || fac.agencyId !== user.id) return sendJson(res, 404, { error: 'Not found.' });
+  await store.deleteFacility(id);
+  return sendJson(res, 200, { ok: true });
+}
+
+async function handleImportFacilities(req, res) {
+  const user = await currentUser(req);
+  if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
+  const body = await readJsonBody(req).catch(() => null);
+  if (!body || !body.csv) return sendJson(res, 400, { error: 'Provide CSV text in { "csv": "..." }.' });
+  const rows = csvLib.csvToObjects(body.csv);
+  let created = 0;
+  const errors = [];
+  for (const row of rows) {
+    const fac = normalizeFacility(row, user.id);
+    if (!fac.name || !fac.type) { errors.push(`Skipped row (missing name/type): ${row.name || '(blank)'}`); continue; }
+    await store.createFacility(fac);
+    created += 1;
+  }
+  return sendJson(res, 200, { created, errors });
+}
+
+const SAMPLE_FACILITIES = [
+  { name: 'Sample Care Home — Sacramento (demo)', type: 'board_and_care_RCFE', city: 'Sacramento', county: 'Sacramento', zip: '95823', ca_license_number: 'DEMO-000001', license_status: 'licensed', availability_status: 'open', levels_of_care: ['board_and_care_RCFE', 'memory_care'], payors_accepted: ['private', 'Medi-Cal'], price_min: 3000, price_max: 4500, room_types: ['private', 'shared'], languages: ['english', 'spanish'], capabilities: ['memory_care', 'two_person_transfer'], fee_paid_by_facility: 'one month rent', data_source: 'sample', notes: 'DEMO DATA — replace with verified facility.' },
+  { name: 'Sample Assisted Living — Roseville (demo)', type: 'assisted_living', city: 'Roseville', county: 'Placer', zip: '95661', ca_license_number: 'DEMO-000002', license_status: 'licensed', availability_status: 'limited', levels_of_care: ['assisted_living'], payors_accepted: ['private', 'LTC_insurance'], price_min: 4500, price_max: 6500, room_types: ['studio', 'one_bedroom'], languages: ['english'], capabilities: ['oxygen', 'pet_friendly'], fee_paid_by_facility: 'one month rent', data_source: 'sample', notes: 'DEMO DATA — replace with verified facility.' },
+  { name: 'Sample Memory Care — Elk Grove (demo)', type: 'memory_care', city: 'Elk Grove', county: 'Sacramento', zip: '95624', ca_license_number: 'DEMO-000003', license_status: 'licensed', availability_status: 'open', levels_of_care: ['memory_care'], payors_accepted: ['private', 'Medi-Cal', 'ALW'], price_min: 4000, price_max: 5500, room_types: ['private'], languages: ['english'], capabilities: ['memory_care', 'behavioral'], fee_paid_by_facility: 'one month rent', data_source: 'sample', notes: 'DEMO DATA — replace with verified facility.' },
+];
+
+async function handleSampleFacilities(req, res) {
+  const user = await currentUser(req);
+  if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
+  let created = 0;
+  for (const s of SAMPLE_FACILITIES) {
+    await store.createFacility(normalizeFacility(s, user.id));
+    created += 1;
+  }
+  return sendJson(res, 200, { created });
+}
+
+async function handleMatch(req, res) {
+  const user = await currentUser(req);
+  if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
+  const body = await readJsonBody(req).catch(() => null);
+  if (!body) return sendJson(res, 400, { error: 'Invalid request.' });
+
+  let lead = null;
+  let profile;
+  if (body.leadId) {
+    lead = await store.getLead(body.leadId);
+    if (!lead || lead.userId !== user.id) return sendJson(res, 404, { error: 'Not found.' });
+    const rec = cryptoLib.decryptJson(lead.data) || {};
+    profile = matcher.profileFromRecord(rec);
+  } else {
+    profile = matcher.profileFromRecord(body.profile || {});
+  }
+
+  const facilities = await store.listFacilities(user.id);
+  const results = matcher.matchFacilities(profile, facilities);
+
+  // Optionally attach the shortlist (ids + scores only — no PII) onto the lead.
+  if (body.save && lead) {
+    const rec = cryptoLib.decryptJson(lead.data) || {};
+    rec.matchShortlist = results.slice(0, 10).map((r) => ({ facilityId: r.facilityId, name: r.name, score: r.score, recommended: r.recommended }));
+    await store.updateLead(lead.id, { data: cryptoLib.encryptJson(rec) });
+  }
+
+  return sendJson(res, 200, { profile, count: results.length, results });
+}
+
 function serveStatic(req, res, pathname) {
   let rel = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
   // Prevent path traversal.
@@ -1128,6 +1292,19 @@ async function route(req, res) {
     if (!(await currentUser(req))) return sendJson(res, 401, { error: 'Please log in.' });
     return handleClientProfile(req, res);
   }
+
+  // --- Facility inventory + matcher (auth) ---
+  if (pathname === '/api/facilities' && method === 'GET') return handleListFacilities(req, res);
+  if (pathname === '/api/facilities' && method === 'POST') return handleCreateFacility(req, res);
+  if (pathname === '/api/facilities/import' && method === 'POST') return handleImportFacilities(req, res);
+  if (pathname === '/api/facilities/sample' && method === 'POST') return handleSampleFacilities(req, res);
+  if (pathname.startsWith('/api/facilities/')) {
+    const id = decodeURIComponent(pathname.slice('/api/facilities/'.length));
+    if (method === 'GET') return handleGetFacility(req, res, id);
+    if (method === 'POST' || method === 'PUT') return handleUpdateFacility(req, res, id);
+    if (method === 'DELETE') return handleDeleteFacility(req, res, id);
+  }
+  if (pathname === '/api/match' && method === 'POST') return handleMatch(req, res);
 
   // --- Client / lead tracker (auth) ---
   if (pathname === '/api/leads' && method === 'GET') return handleListLeads(req, res);

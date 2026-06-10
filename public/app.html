@@ -272,6 +272,75 @@
         </div>
         <div id="leads-list" class="leads-list"></div>
         <div id="lead-view" class="client-result" hidden></div>
+        <div id="match-result" class="client-result" hidden></div>
+      </section>
+
+      <!-- Care-home inventory + matcher -->
+      <section class="panel" id="facilities-panel">
+        <div class="plan-head">
+          <div>
+            <h2>Care-home inventory</h2>
+            <p class="subtitle">
+              Your facilities power the resident → care-home matcher. Add them
+              manually, import a CSV, or load California demo data to try it out.
+            </p>
+          </div>
+          <button type="button" id="seed-facilities" class="deck-btn">Load CA demo data</button>
+        </div>
+
+        <details class="fac-add">
+          <summary>Add a facility</summary>
+          <form id="facility-form" autocomplete="off">
+            <div class="three-col">
+              <label class="pf-label">Name <input id="fa-name" type="text" /></label>
+              <label class="pf-label">Type
+                <select id="fa-type">
+                  <option value="board_and_care_RCFE">Board &amp; care (RCFE)</option>
+                  <option value="assisted_living">Assisted living</option>
+                  <option value="memory_care">Memory care</option>
+                  <option value="independent_living">Independent living</option>
+                  <option value="SNF">SNF</option>
+                </select>
+              </label>
+              <label class="pf-label">CA license # <input id="fa-ca_license_number" type="text" /></label>
+            </div>
+            <div class="three-col">
+              <label class="pf-label">City <input id="fa-city" type="text" /></label>
+              <label class="pf-label">County <input id="fa-county" type="text" /></label>
+              <label class="pf-label">ZIP <input id="fa-zip" type="text" /></label>
+            </div>
+            <div class="three-col">
+              <label class="pf-label">Price min <input id="fa-price_min" type="text" /></label>
+              <label class="pf-label">Price max <input id="fa-price_max" type="text" /></label>
+              <label class="pf-label">Availability
+                <select id="fa-availability_status">
+                  <option value="open">Open</option>
+                  <option value="limited">Limited</option>
+                  <option value="full">Full</option>
+                  <option value="unknown">Unknown</option>
+                </select>
+              </label>
+            </div>
+            <label class="pf-label">Payors accepted <span class="muted">(comma-separated: private, Medi-Cal, LTC_insurance, ALW, VA)</span> <input id="fa-payors_accepted" type="text" /></label>
+            <label class="pf-label">Room types <span class="muted">(private, shared, studio, one_bedroom)</span> <input id="fa-room_types" type="text" /></label>
+            <label class="pf-label">Capabilities <span class="muted">(memory_care, two_person_transfer, oxygen, dialysis, behavioral, pet_friendly, faith_based…)</span> <input id="fa-capabilities" type="text" /></label>
+            <label class="pf-label">Languages <input id="fa-languages" type="text" /></label>
+            <div class="plan-footer">
+              <span id="facility-status" class="plan-status"></span>
+              <button id="add-facility" type="button" class="primary-btn">Add facility</button>
+            </div>
+          </form>
+        </details>
+
+        <details class="fac-add">
+          <summary>Import CSV</summary>
+          <p class="muted" style="font-size:0.82rem;">Header row: <code>name,type,city,county,zip,ca_license_number,license_status,payors_accepted,price_min,price_max,room_types,languages,capabilities,availability_status</code> (arrays semicolon- or comma-separated inside quotes).</p>
+          <textarea id="fa-csv" rows="4" placeholder="Paste CSV here"></textarea>
+          <div class="plan-footer"><span id="import-status" class="plan-status"></span><button id="import-facilities" type="button" class="deck-btn">Import</button></div>
+        </details>
+
+        <h3>Facilities <span id="fac-count" class="muted"></span></h3>
+        <div id="facilities-list" class="leads-list"></div>
       </section>
 
       <!-- Referral source finder -->
@@ -328,6 +397,7 @@
     <script src="/profile.js"></script>
     <script src="/clients.js"></script>
     <script src="/leads.js"></script>
+    <script src="/facilities.js"></script>
     <script src="/app.js"></script>
   </body>
 </html>

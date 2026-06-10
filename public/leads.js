@@ -45,10 +45,12 @@
         <div class="lead-actions">
           <select class="lead-status">${STATUSES.map((s) => `<option value="${s}" ${s === l.status ? 'selected' : ''}>${s}</option>`).join('')}</select>
           <button type="button" class="link-btn lead-view">View</button>
+          <button type="button" class="link-btn lead-match">Match</button>
           <button type="button" class="link-btn lead-del">Delete</button>
         </div>`;
       row.querySelector('.lead-status').addEventListener('change', (e) => setStatus(l.id, e.target.value));
       row.querySelector('.lead-view').addEventListener('click', () => view(l.id));
+      row.querySelector('.lead-match').addEventListener('click', () => match(l.id));
       row.querySelector('.lead-del').addEventListener('click', () => del(l.id));
       listEl.appendChild(row);
     }
@@ -78,6 +80,23 @@
       if (!resp.ok) return;
       if (window.renderSafeProfile) window.renderSafeProfile(data.rendered, viewEl);
       viewEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    } catch { /* ignore */ }
+  }
+
+  async function match(id) {
+    const target = document.getElementById('match-result');
+    try {
+      const resp = await fetch('/api/match', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ leadId: id, save: true }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) return;
+      if (window.renderMatch && target) {
+        window.renderMatch(data, target);
+        target.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
     } catch { /* ignore */ }
   }
 
