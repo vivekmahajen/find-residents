@@ -30,9 +30,11 @@
       return;
     }
     const over = account.overageUsd > 0 ? ` · <span class="over">${money(account.overageUsd)} overage</span>` : '';
+    const due = account.pastDue ? ' · <span class="over">payment past due</span>' : '';
     balanceEl.innerHTML =
       `<span class="bal-credits">${account.totalCredits.toLocaleString()} credits</span>` +
-      `<span class="bal-plan">${account.planName}${account.annual ? ' · annual' : ''}${over}</span>`;
+      `<span class="bal-plan">${account.planName}${account.annual ? ' · annual' : ''}${over}${due}</span>`;
+    if (account.pastDue && statusEl) statusEl.textContent = 'Payment failed — paid features are paused until you update your payment method. Free features still work.';
   }
 
   function renderLadder() {

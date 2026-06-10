@@ -29,7 +29,8 @@ The app runs as a standalone Node server locally *and* as a Vercel serverless fu
    | `PGSSL` | Optional | `disable` only for a non-TLS local Postgres |
 
 3. **Deploy** (`git push` to the connected repo, or `vercel`). `npm install` pulls `pg`, `@anthropic-ai/sdk`, `pptxgenjs`, `stripe`.
-4. **Stripe webhook:** Stripe Dashboard → Webhooks → add endpoint `https://your-app.vercel.app/api/stripe/webhook`, subscribe to `checkout.session.completed` and `customer.subscription.deleted`, and copy the signing secret into `STRIPE_WEBHOOK_SECRET`.
+4. **Stripe webhook:** Stripe Dashboard → Webhooks → add endpoint `https://your-app.vercel.app/api/stripe/webhook`, subscribe to `checkout.session.completed`, `customer.subscription.deleted`, `invoice.paid`, and `invoice.payment_failed`, and copy the signing secret into `STRIPE_WEBHOOK_SECRET`.
+5. **Email (optional):** set `EMAIL_PROVIDER` (`resend` | `postmark` | `sendgrid`), `EMAIL_API_KEY`, `EMAIL_FROM`, and `EMAIL_PHYSICAL_ADDRESS` (for CAN-SPAM marketing footers). Without these, email degrades to console logging and the password-reset link is shown in dev.
 
 **Notes / to verify on a live deploy:**
 - The single function serves both pages and static assets from `public/` (bundled via `includeFiles` in `vercel.json`).
@@ -49,7 +50,7 @@ npm start          # or: node server.js  → http://localhost:3000 (login page)
 
 - **Login is the landing page.** New users create an account with a **User ID**, a valid **email**, and a **password** (min 8 chars, letter + number). Standard flows included: log in (by User ID *or* email), log out, and **forgot/reset password**. Everyone starts on the **Free** plan.
 - **How it's built:** passwords are hashed with Node's `crypto` **scrypt** (salted, constant-time compare); sessions are **HttpOnly cookies** backed by a small **JSON file store** (`data/db.json`, gitignored, atomic writes — swap for SQLite/Postgres later). Set `NODE_ENV=production` to add the `Secure` cookie flag.
-- **Forgot-password email:** no email provider is wired up, so the reset link is **logged to the server console** (and shown on-screen in dev for testing). For production, implement `lib/mailer.js → sendPasswordReset()` with a real provider and remove the dev link.
+- **Email:** `lib/mailer.js` sends via a provider-agnostic interface (Resend / Postmark / SendGrid) configured by `EMAIL_PROVIDER` + `EMAIL_API_KEY` + `EMAIL_FROM`. It powers password-reset and billing-receipt/dunning emails. With no key it logs to the console (and shows the reset link in dev). Marketing/sequence email (WS3) gets a CAN-SPAM footer (physical address + unsubscribe) via `EMAIL_PHYSICAL_ADDRESS`.
 
 ### 💳 Credit-based pricing (plans + credits)
 
@@ -79,9 +80,9 @@ Billing is a **credit model** (`lib/pricing.js`). A plan grants monthly credits;
   export BASE_URL=https://your-app.example.com  # optional; else derived from the request
   ```
   - **Plans** → subscription Checkout (`/api/checkout/plan`); monthly or annual (−20%, billed yearly). **Top-ups** → one-time Checkout (`/api/checkout/topup`). Prices are built inline from `lib/pricing.js`, so no Stripe dashboard Price objects need pre-creating.
-  - **Webhook** at `POST /api/stripe/webhook` (signature-verified) fulfills `checkout.session.completed` (activate plan / add credits) and downgrades to Free on `customer.subscription.deleted`. Point your Stripe webhook there. Locally: `stripe listen --forward-to localhost:3000/api/stripe/webhook`.
+  - **Webhook** at `POST /api/stripe/webhook` (signature-verified) handles: `checkout.session.completed` (activate plan / add credits, clear past-due), `invoice.paid` (refill monthly credits, invoice accrued overage, send receipt), `invoice.payment_failed` (mark **past-due** → paid features paused + dunning email; Free still works), and `customer.subscription.deleted` (downgrade to Free). Point your Stripe webhook there. Locally: `stripe listen --forward-to localhost:3000/api/stripe/webhook`.
   - With Stripe live, the instant `/api/plan` and `/api/topup` endpoints refuse paid changes (Free downgrade still works), so credits can't be granted without payment.
-  - **Not yet wired:** charging the metered overage balance (`overageUsd`) back to the card — overage is tracked but not yet invoiced. Subscription **renewals** currently top up credits via the in-app 30-day cycle reset rather than the `invoice.paid` webhook.
+  - **Renewals & overage:** Stripe-subscribed accounts refill credits on `invoice.paid` (the in-app 30-day reset is skipped for them); accrued `overageUsd` is added as a Stripe invoice item at renewal. A failed payment marks the account **past-due** and treats it like Free (must have credits, no overage) until the next successful payment. Top-up credits always carry over. The account panel shows credits used this cycle, accrued overage, and a past-due notice.
 
 ### 👑 Admin accounts (no billing)
 

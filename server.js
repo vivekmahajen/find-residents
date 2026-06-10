@@ -693,9 +693,10 @@ async function handleForgot(req, res) {
   let devResetLink;
   if (user) {
     const token = await store.createReset(user.id);
-    const link = `http://${req.headers.host || 'localhost'}/?token=${token}`;
+    const link = `${baseUrlFrom(req)}/?token=${token}`;
     await mailer.sendPasswordReset(user.email, link);
-    if (!IS_PROD) devResetLink = link; // surfaced only in dev for testing
+    // Surface the link only when no email provider is configured (dev convenience).
+    if (!mailer.enabled() && !IS_PROD) devResetLink = link;
   }
   // Always return success — never reveal whether the email is registered.
   return sendJson(res, 200, { ok: true, devResetLink });
@@ -911,6 +912,26 @@ function readRawBody(req) {
   });
 }
 
+async function findUserByStripe(predicate) {
+  const users = await store.listUsers();
+  return users.find((u) => u.account && predicate(u.account)) || null;
+}
+
+// Bill accrued usage overage onto the customer's next invoice, then reset it.
+async function settleOverage(user) {
+  const acct = user.account;
+  if (!acct || !(acct.overageUsd > 0)) return;
+  if (stripeLib.enabled() && acct.stripeCustomerId) {
+    try {
+      await stripeLib.addOverageInvoiceItem({ customerId: acct.stripeCustomerId, amountUsd: acct.overageUsd, description: 'Usage overage' });
+      acct.overageUsd = 0;
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('overage invoicing failed:', e.message);
+    }
+  }
+}
+
 // Grant entitlements after Stripe confirms payment. Idempotent enough for MVP.
 async function fulfillStripeEvent(event) {
   const obj = event.data.object;
@@ -924,6 +945,7 @@ async function fulfillStripeEvent(event) {
       const plan = pricing.planById(md.planId);
       if (plan) {
         pricing.setPlan(acct, plan.id, md.annual === '1');
+        acct.pastDue = false;
         acct.stripeCustomerId = obj.customer || acct.stripeCustomerId;
         acct.stripeSubscriptionId = obj.subscription || acct.stripeSubscriptionId;
       }
@@ -934,10 +956,33 @@ async function fulfillStripeEvent(event) {
     await store.updateUser(user.id, { account: acct });
   } else if (event.type === 'customer.subscription.deleted') {
     const md = obj.metadata || {};
-    const user = md.userId ? await store.findById(md.userId) : null;
+    let user = md.userId ? await store.findById(md.userId) : null;
+    if (!user) user = await findUserByStripe((a) => a.stripeSubscriptionId === obj.id);
     if (user && user.account) {
       pricing.setPlan(user.account, 'free', false);
+      user.account.stripeSubscriptionId = null;
       await store.updateUser(user.id, { account: user.account });
+    }
+  } else if (event.type === 'invoice.paid') {
+    // Subscription renewal: bill last cycle's overage, refill credits, clear past-due.
+    const user = (await findUserByStripe((a) => a.stripeCustomerId === obj.customer))
+      || (obj.subscription ? await findUserByStripe((a) => a.stripeSubscriptionId === obj.subscription) : null);
+    if (user && user.account) {
+      await settleOverage(user);
+      pricing.refillPlan(user.account);
+      await store.updateUser(user.id, { account: user.account });
+      mailer.sendReceipt(user.email, {
+        description: 'Subscription renewal',
+        amountUsd: obj.amount_paid != null ? obj.amount_paid / 100 : undefined,
+      }).catch(() => {});
+    }
+  } else if (event.type === 'invoice.payment_failed') {
+    const user = (await findUserByStripe((a) => a.stripeCustomerId === obj.customer))
+      || (obj.subscription ? await findUserByStripe((a) => a.stripeSubscriptionId === obj.subscription) : null);
+    if (user && user.account) {
+      user.account.pastDue = true;
+      await store.updateUser(user.id, { account: user.account });
+      mailer.sendDunning(user.email).catch(() => {});
     }
   }
 }
@@ -1392,6 +1437,7 @@ async function handler(req, res) {
 
 module.exports = handler;
 module.exports.handler = handler;
+module.exports.fulfillStripeEvent = fulfillStripeEvent; // exported for tests
 
 // Start a listener only when run directly (not when imported on Vercel).
 if (require.main === module) {
