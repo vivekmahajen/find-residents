@@ -31,6 +31,7 @@ const redact = require('./lib/redact');
 const cryptoLib = require('./lib/crypto');
 const matcher = require('./lib/matcher');
 const csvLib = require('./lib/csv');
+const crm = require('./lib/crm');
 
 const IS_PROD = process.env.NODE_ENV === 'production';
 
@@ -1278,6 +1279,298 @@ async function handleMatch(req, res) {
   return sendJson(res, 200, { profile, count: results.length, results });
 }
 
+// ---- Lightweight CRM: contacts, tasks, activities, sequences (Workstream 3) -
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function contactPublic(rec) {
+  let pii = {};
+  try { pii = cryptoLib.decryptJson(rec.data.enc) || {}; } catch { pii = {}; }
+  return {
+    id: rec.id,
+    sourceRef: rec.data.sourceRef,
+    consentStatus: rec.data.consentStatus || 'unknown',
+    createdAt: rec.createdAt,
+    name: pii.name || '',
+    title: pii.title || '',
+    email: pii.email || '',
+    phone: pii.phone || '',
+    notes: pii.notes || '',
+  };
+}
+
+// --- Contacts (PII: redact-on-store + encrypted) ---
+async function handleListContacts(req, res, sourceRef) {
+  const user = await currentUser(req);
+  if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
+  const recs = await store.listRecords(user.id, 'contact');
+  const contacts = recs.filter((r) => !sourceRef || r.data.sourceRef === sourceRef).map(contactPublic);
+  return sendJson(res, 200, { contacts });
+}
+async function handleCreateContact(req, res, sourceRef) {
+  const user = await currentUser(req);
+  if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
+  const body = await readJsonBody(req).catch(() => null);
+  if (!body) return sendJson(res, 400, { error: 'Invalid request.' });
+  if (!String(body.name || '').trim()) return sendJson(res, 400, { error: 'Contact name is required.' });
+  const pii = {
+    name: String(body.name || '').trim(),
+    title: String(body.title || '').trim(),
+    email: String(body.email || '').trim(),
+    phone: String(body.phone || '').trim(),
+    notes: redact.scrub(body.notes || '').text,
+  };
+  const rec = await store.createRecord({
+    agencyId: user.id,
+    kind: 'contact',
+    data: {
+      sourceRef: String(sourceRef || body.sourceRef || '').trim(),
+      contactEmail: pii.email.toLowerCase(),
+      consentStatus: String(body.consentStatus || 'unknown'),
+      enc: cryptoLib.encryptJson(pii),
+    },
+  });
+  return sendJson(res, 201, { contact: contactPublic(rec) });
+}
+async function handleDeleteContact(req, res, id) {
+  const user = await currentUser(req);
+  if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
+  const rec = await store.getRecord(id);
+  if (!rec || rec.kind !== 'contact' || rec.agencyId !== user.id) return sendJson(res, 404, { error: 'Not found.' });
+  await store.deleteRecord(id);
+  return sendJson(res, 200, { ok: true });
+}
+
+// --- Tasks ---
+async function handleListTasks(req, res) {
+  const user = await currentUser(req);
+  if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
+  const recs = await store.listRecords(user.id, 'task');
+  const tasks = recs.map((r) => ({ id: r.id, ...r.data, createdAt: r.createdAt }));
+  return sendJson(res, 200, { tasks, buckets: crm.bucketTasks(recs, Date.now()) });
+}
+async function handleCreateTask(req, res) {
+  const user = await currentUser(req);
+  if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
+  const body = await readJsonBody(req).catch(() => null);
+  if (!body || !String(body.title || '').trim()) return sendJson(res, 400, { error: 'Task title is required.' });
+  const dueAt = body.dueAt ? new Date(body.dueAt).getTime() : null;
+  const rec = await store.createRecord({
+    agencyId: user.id,
+    kind: 'task',
+    data: {
+      title: String(body.title).trim(),
+      dueAt: Number.isFinite(dueAt) ? dueAt : null,
+      linkedType: body.linkedType || null,
+      linkedRef: body.linkedRef || null,
+      notes: redact.scrub(body.notes || '').text,
+      status: 'open',
+      reminderSentAt: null,
+    },
+  });
+  return sendJson(res, 201, { task: { id: rec.id, ...rec.data } });
+}
+async function handleUpdateTask(req, res, id) {
+  const user = await currentUser(req);
+  if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
+  const rec = await store.getRecord(id);
+  if (!rec || rec.kind !== 'task' || rec.agencyId !== user.id) return sendJson(res, 404, { error: 'Not found.' });
+  const body = await readJsonBody(req).catch(() => ({}));
+  const data = { ...rec.data };
+  if (body.status === 'done' || body.status === 'open') data.status = body.status;
+  if (body.title) data.title = String(body.title).trim();
+  if ('dueAt' in body) { const t = body.dueAt ? new Date(body.dueAt).getTime() : null; data.dueAt = Number.isFinite(t) ? t : null; }
+  const updated = await store.updateRecord(id, { data });
+  return sendJson(res, 200, { task: { id, ...updated.data } });
+}
+async function handleDeleteTask(req, res, id) {
+  const user = await currentUser(req);
+  if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
+  const rec = await store.getRecord(id);
+  if (!rec || rec.kind !== 'task' || rec.agencyId !== user.id) return sendJson(res, 404, { error: 'Not found.' });
+  await store.deleteRecord(id);
+  return sendJson(res, 200, { ok: true });
+}
+
+// --- Activities (append-only timeline) ---
+async function handleCreateActivity(req, res) {
+  const user = await currentUser(req);
+  if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
+  const body = await readJsonBody(req).catch(() => null);
+  if (!body || !body.entityRef) return sendJson(res, 400, { error: 'entityRef required.' });
+  const rec = await store.createRecord({
+    agencyId: user.id,
+    kind: 'activity',
+    data: {
+      entityType: body.entityType || 'source',
+      entityRef: String(body.entityRef),
+      type: ['call', 'email', 'meeting', 'note'].includes(body.type) ? body.type : 'note',
+      note: redact.scrub(body.note || '').text,
+      author: user.username,
+    },
+  });
+  return sendJson(res, 201, { activity: { id: rec.id, ...rec.data, createdAt: rec.createdAt } });
+}
+async function handleListActivities(req, res, urlObj) {
+  const user = await currentUser(req);
+  if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
+  const entityRef = urlObj.searchParams.get('entityRef');
+  const recs = await store.listRecords(user.id, 'activity');
+  const activities = recs
+    .filter((r) => !entityRef || r.data.entityRef === entityRef)
+    .map((r) => ({ id: r.id, ...r.data, createdAt: r.createdAt }));
+  return sendJson(res, 200, { activities });
+}
+
+// --- Sequences + enrollments ---
+async function handleListSequences(req, res) {
+  const user = await currentUser(req);
+  if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
+  const recs = await store.listRecords(user.id, 'sequence');
+  return sendJson(res, 200, { sequences: recs.map((r) => ({ id: r.id, ...r.data })) });
+}
+async function handleCreateSequence(req, res) {
+  const user = await currentUser(req);
+  if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
+  const body = await readJsonBody(req).catch(() => null);
+  if (!body || !String(body.name || '').trim() || !Array.isArray(body.steps) || !body.steps.length) {
+    return sendJson(res, 400, { error: 'Provide a name and at least one step.' });
+  }
+  const steps = body.steps.slice(0, 10).map((s) => ({
+    channel: s.channel === 'manual_task' ? 'manual_task' : 'email',
+    subject: String(s.subject || '').slice(0, 200),
+    body: String(s.body || '').slice(0, 4000),
+    delayDays: Math.max(0, Number(s.delayDays) || 0),
+  }));
+  const rec = await store.createRecord({ agencyId: user.id, kind: 'sequence', data: { name: String(body.name).trim(), steps } });
+  return sendJson(res, 201, { sequence: { id: rec.id, ...rec.data } });
+}
+async function handleEnroll(req, res, seqId) {
+  const user = await currentUser(req);
+  if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
+  const body = await readJsonBody(req).catch(() => ({}));
+  const seq = await store.getRecord(seqId);
+  if (!seq || seq.kind !== 'sequence' || seq.agencyId !== user.id) return sendJson(res, 404, { error: 'Sequence not found.' });
+  const contact = await store.getRecord(body.contactId);
+  if (!contact || contact.kind !== 'contact' || contact.agencyId !== user.id) return sendJson(res, 404, { error: 'Contact not found.' });
+  if (contact.data.consentStatus !== 'opted_in') {
+    return sendJson(res, 400, { error: 'Contact must have consent (consentStatus = opted_in) before enrolling in an email sequence.' });
+  }
+  const email = contact.data.contactEmail;
+  if (!email) return sendJson(res, 400, { error: 'Contact has no email.' });
+  const firstDelay = (seq.data.steps[0] && seq.data.steps[0].delayDays) || 0;
+  const rec = await store.createRecord({
+    agencyId: user.id,
+    kind: 'enrollment',
+    data: { sequenceId: seqId, sequenceName: seq.data.name, contactId: contact.id, contactEmail: email, status: 'active', currentStep: 0, nextRunAt: Date.now() + firstDelay * DAY_MS, enrolledAt: Date.now() },
+  });
+  return sendJson(res, 201, { enrollment: { id: rec.id, ...rec.data } });
+}
+async function handleListEnrollments(req, res) {
+  const user = await currentUser(req);
+  if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
+  const recs = await store.listRecords(user.id, 'enrollment');
+  return sendJson(res, 200, { enrollments: recs.map((r) => ({ id: r.id, ...r.data })) });
+}
+async function handleStopEnrollment(req, res, id) {
+  const user = await currentUser(req);
+  if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
+  const rec = await store.getRecord(id);
+  if (!rec || rec.kind !== 'enrollment' || rec.agencyId !== user.id) return sendJson(res, 404, { error: 'Not found.' });
+  await store.updateRecord(id, { data: { ...rec.data, status: 'stopped', stoppedReason: 'manual' } });
+  return sendJson(res, 200, { ok: true });
+}
+
+// --- Unsubscribe (public; signed link) ---
+async function handleUnsubscribe(req, res, urlObj) {
+  const email = String(urlObj.searchParams.get('e') || '').trim().toLowerCase();
+  const agencyId = urlObj.searchParams.get('a') || '';
+  const token = urlObj.searchParams.get('t') || '';
+  const ok = email && crm.verifyUnsub(email, agencyId, token);
+  if (ok) {
+    const existing = (await store.listRecords(agencyId, 'unsubscribe')).find((r) => r.data.email === email);
+    if (!existing) await store.createRecord({ agencyId, kind: 'unsubscribe', data: { email } });
+    // Stop any active enrollments for this email.
+    for (const e of await store.listRecords(agencyId, 'enrollment')) {
+      if (e.data.status === 'active' && String(e.data.contactEmail).toLowerCase() === email) {
+        await store.updateRecord(e.id, { data: { ...e.data, status: 'stopped', stoppedReason: 'unsubscribed' } });
+      }
+    }
+  }
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end(`<!doctype html><meta charset="utf-8"><body style="font-family:sans-serif;max-width:480px;margin:4rem auto;text-align:center"><h2>${ok ? 'You have been unsubscribed.' : 'Invalid unsubscribe link.'}</h2><p>${ok ? 'You will no longer receive sequence emails.' : 'Please contact the sender.'}</p></body>`);
+}
+
+// --- Cron engine (due reminders + sequence steps) ---
+async function runDueReminders(now) {
+  let sent = 0;
+  for (const t of await store.listAllRecords('task')) {
+    if (t.data.status === 'done' || t.data.reminderSentAt || !t.data.dueAt || t.data.dueAt > now) continue;
+    const owner = await store.findById(t.agencyId);
+    if (owner) {
+      mailer.send({ to: owner.email, subject: `Task due: ${t.data.title}`, category: 'transactional', text: `Reminder: "${t.data.title}" is due. Open your dashboard to complete it.`, html: `<p>Reminder: <strong>${t.data.title}</strong> is due.</p>` }).catch(() => {});
+    }
+    await store.updateRecord(t.id, { data: { ...t.data, reminderSentAt: now } });
+    sent += 1;
+  }
+  return sent;
+}
+
+async function runDueSequences(now) {
+  let steps = 0;
+  let stopped = 0;
+  const unsub = new Set((await store.listAllRecords('unsubscribe')).map((u) => `${u.agencyId}|${String(u.data.email).toLowerCase()}`));
+  const base = process.env.BASE_URL ? process.env.BASE_URL.replace(/\/+$/, '') : 'http://localhost:3000';
+
+  for (const e of await store.listAllRecords('enrollment')) {
+    const d = e.data;
+    if (d.status !== 'active' || d.nextRunAt > now) continue;
+    const email = String(d.contactEmail || '').toLowerCase();
+    if (unsub.has(`${e.agencyId}|${email}`)) {
+      await store.updateRecord(e.id, { data: { ...d, status: 'stopped', stoppedReason: 'unsubscribed' } });
+      stopped += 1;
+      continue;
+    }
+    const seq = await store.getRecord(d.sequenceId);
+    if (!seq) { await store.updateRecord(e.id, { data: { ...d, status: 'stopped', stoppedReason: 'sequence_deleted' } }); continue; }
+    const step = seq.data.steps[d.currentStep];
+    if (!step) { await store.updateRecord(e.id, { data: { ...d, status: 'completed' } }); continue; }
+
+    if (step.channel === 'manual_task') {
+      await store.createRecord({ agencyId: e.agencyId, kind: 'task', data: { title: `[Sequence] ${step.subject || 'Call/SMS step'}`, dueAt: now, linkedType: 'contact', linkedRef: d.contactId, notes: step.body, status: 'open', reminderSentAt: null } });
+    } else {
+      const t = crm.unsubToken(email, e.agencyId);
+      const unsubscribeUrl = `${base}/api/unsubscribe?e=${encodeURIComponent(email)}&a=${encodeURIComponent(e.agencyId)}&t=${t}`;
+      mailer.send({ to: d.contactEmail, subject: step.subject || 'Following up', category: 'marketing', text: step.body, html: `<p>${String(step.body || '').replace(/\n/g, '<br>')}</p>`, unsubscribeUrl }).catch(() => {});
+    }
+    const next = d.currentStep + 1;
+    const done = next >= seq.data.steps.length;
+    const nextDelay = done ? 0 : (seq.data.steps[next].delayDays || 0);
+    await store.updateRecord(e.id, { data: { ...d, currentStep: next, status: done ? 'completed' : 'active', nextRunAt: now + nextDelay * DAY_MS } });
+    steps += 1;
+  }
+  return { steps, stopped };
+}
+
+async function runCron(now = Date.now()) {
+  const reminders = await runDueReminders(now);
+  const seq = await runDueSequences(now);
+  return { reminders, sequenceSteps: seq.steps, sequencesStopped: seq.stopped };
+}
+
+function cronAuthorized(req, urlObj) {
+  const secret = process.env.CRON_SECRET;
+  if (!secret) return true; // dev: no secret configured
+  if ((req.headers.authorization || '') === `Bearer ${secret}`) return true;
+  return urlObj.searchParams.get('key') === secret;
+}
+
+async function handleCron(req, res, urlObj) {
+  if (!cronAuthorized(req, urlObj)) return sendJson(res, 401, { error: 'Unauthorized.' });
+  const result = await runCron();
+  return sendJson(res, 200, { ok: true, ...result });
+}
+
 function serveStatic(req, res, pathname) {
   let rel = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
   // Prevent path traversal.
@@ -1350,6 +1643,36 @@ async function route(req, res) {
     if (method === 'DELETE') return handleDeleteFacility(req, res, id);
   }
   if (pathname === '/api/match' && method === 'POST') return handleMatch(req, res);
+
+  // --- CRM: contacts, tasks, activities, sequences (auth) ---
+  const contactsMatch = pathname.match(/^\/api\/sources\/([^/]+)\/contacts$/);
+  if (contactsMatch) {
+    const ref = decodeURIComponent(contactsMatch[1]);
+    if (method === 'GET') return handleListContacts(req, res, ref);
+    if (method === 'POST') return handleCreateContact(req, res, ref);
+  }
+  if (pathname.startsWith('/api/contacts/')) {
+    const id = decodeURIComponent(pathname.slice('/api/contacts/'.length));
+    if (method === 'DELETE') return handleDeleteContact(req, res, id);
+  }
+  if (pathname === '/api/tasks' && method === 'GET') return handleListTasks(req, res);
+  if (pathname === '/api/tasks' && method === 'POST') return handleCreateTask(req, res);
+  if (pathname.startsWith('/api/tasks/')) {
+    const id = decodeURIComponent(pathname.slice('/api/tasks/'.length));
+    if (method === 'POST' || method === 'PUT') return handleUpdateTask(req, res, id);
+    if (method === 'DELETE') return handleDeleteTask(req, res, id);
+  }
+  if (pathname === '/api/activities' && method === 'POST') return handleCreateActivity(req, res);
+  if (pathname === '/api/activities' && method === 'GET') return handleListActivities(req, res, urlObj);
+  if (pathname === '/api/sequences' && method === 'GET') return handleListSequences(req, res);
+  if (pathname === '/api/sequences' && method === 'POST') return handleCreateSequence(req, res);
+  const enrollMatch = pathname.match(/^\/api\/sequences\/([^/]+)\/enroll$/);
+  if (enrollMatch && method === 'POST') return handleEnroll(req, res, decodeURIComponent(enrollMatch[1]));
+  if (pathname === '/api/enrollments' && method === 'GET') return handleListEnrollments(req, res);
+  const stopMatch = pathname.match(/^\/api\/enrollments\/([^/]+)\/stop$/);
+  if (stopMatch && method === 'POST') return handleStopEnrollment(req, res, decodeURIComponent(stopMatch[1]));
+  if (pathname === '/api/unsubscribe' && method === 'GET') return handleUnsubscribe(req, res, urlObj); // public
+  if (pathname === '/api/cron/run') return handleCron(req, res, urlObj);
 
   // --- Client / lead tracker (auth) ---
   if (pathname === '/api/leads' && method === 'GET') return handleListLeads(req, res);
@@ -1438,6 +1761,7 @@ async function handler(req, res) {
 module.exports = handler;
 module.exports.handler = handler;
 module.exports.fulfillStripeEvent = fulfillStripeEvent; // exported for tests
+module.exports.runCron = runCron; // exported for tests + manual invocation
 
 // Start a listener only when run directly (not when imported on Vercel).
 if (require.main === module) {
