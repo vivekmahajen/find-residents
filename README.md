@@ -122,6 +122,16 @@ Save the referrals you've received (data **you** enter — never pulled from a h
 - **Access control:** leads are scoped to the owning agency; another account gets a 404.
 - **Status pipeline** (new → contacted → touring → application → placed → closed), optional "referred by" source, role-gated **View** (full / matching / partner), and delete. Endpoints: `GET/POST /api/leads`, `GET/POST/DELETE /api/leads/:id`.
 
+### 📇 Outreach CRM — contacts, tasks, activities, sequences
+
+Lightweight CRM for working referral sources, all per-agency and access-controlled.
+
+- **Contacts** (decision-makers tied to a source NPI/ref): **redact-on-store + encrypted** (like clients). Manual / public-website entry only — no scraping or purchased PII. `consentStatus` is required (`opted_in`) before email enrollment. Endpoints: `GET/POST /api/sources/:ref/contacts`, `DELETE /api/contacts/:id`.
+- **Tasks** with due dates (today / overdue / upcoming); due tasks email the agency a reminder via cron. `GET/POST /api/tasks`, `POST/DELETE /api/tasks/:id`.
+- **Activities** — append-only call/email/meeting/note timeline per entity. `POST /api/activities`, `GET /api/activities?entityRef=…`.
+- **Email sequences** — named multi-step cadences (template + delay days). Enroll a consented contact; a cron job sends due steps and **stops on unsubscribe** (CAN-SPAM footer + signed unsubscribe link) or manual stop. **Phone/SMS steps are manual tasks only — never auto-dialed/texted.** `GET/POST /api/sequences`, `POST /api/sequences/:id/enroll`, `GET /api/enrollments`, `POST /api/enrollments/:id/stop`, public `GET /api/unsubscribe`.
+- **Cron:** `GET/POST /api/cron/run` processes due reminders + sequence steps. Scheduled via **Vercel Cron** (`vercel.json` → every 15 min). Protect it with `CRON_SECRET` (Vercel injects it as `Authorization: Bearer`); locally it runs without a secret and there's a "Run cron now" button.
+
 ### 🏘️ Care-home inventory + resident matcher
 
 Build (or import) your facility inventory, then match a saved client to a ranked, compliant shortlist.

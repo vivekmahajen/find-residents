@@ -343,6 +343,54 @@
         <div id="facilities-list" class="leads-list"></div>
       </section>
 
+      <!-- Outreach CRM: contacts, tasks, sequences -->
+      <section class="panel" id="crm-panel">
+        <div class="plan-head">
+          <div>
+            <h2>Outreach CRM</h2>
+            <p class="subtitle">Decision-maker contacts, tasks, and compliant email sequences. Reminders and sequence steps run on a schedule (Vercel Cron → <code>/api/cron/run</code>).</p>
+          </div>
+          <button type="button" id="run-cron" class="deck-btn">Run cron now</button>
+        </div>
+        <p id="crm-status" class="plan-status"></p>
+
+        <h3>Tasks</h3>
+        <div class="three-col">
+          <input id="tk-title" type="text" placeholder="Task title" />
+          <input id="tk-due" type="date" />
+          <button id="add-task" type="button" class="primary-btn">Add task</button>
+        </div>
+        <div id="tasks-list" class="leads-list"></div>
+
+        <h3>Contacts <span class="muted">(per referral source)</span></h3>
+        <div class="two-col">
+          <input id="cn-source" type="text" placeholder="Source ref (e.g. NPI from the finder)" />
+          <button id="load-contacts" type="button" class="deck-btn">Load contacts for source</button>
+        </div>
+        <div class="three-col">
+          <input id="cn-name" type="text" placeholder="Name" />
+          <input id="cn-title" type="text" placeholder="Title / role" />
+          <input id="cn-email" type="text" placeholder="Email" />
+        </div>
+        <div class="two-col">
+          <select id="cn-consent"><option value="unknown">consent: unknown</option><option value="opted_in">opted in (required to enroll)</option><option value="opted_out">opted out</option></select>
+          <button id="add-contact" type="button" class="primary-btn">Add contact</button>
+        </div>
+        <div id="contacts-list" class="leads-list"></div>
+
+        <h3>Email sequences</h3>
+        <div id="sequences-list" class="leads-list"></div>
+        <details class="fac-add">
+          <summary>New sequence</summary>
+          <input id="sq-name" type="text" placeholder="Sequence name" />
+          <textarea id="sq-steps" rows="3" placeholder="One step per line:  subject | body | delayDays&#10;Prefix a line with  manual:  for a phone/SMS task step"></textarea>
+          <div class="plan-footer"><span class="muted" style="font-size:0.8rem">Marketing emails include a physical address + unsubscribe (CAN-SPAM). Phone/SMS = manual tasks only.</span><button id="add-sequence" type="button" class="deck-btn">Create sequence</button></div>
+        </details>
+
+        <h3>Enrollments</h3>
+        <div id="enrollments-list" class="leads-list"></div>
+      </section>
+
       <!-- Referral source finder -->
       <section id="finder" class="panel">
         <h2>Find referral sources</h2>
@@ -398,6 +446,7 @@
     <script src="/clients.js"></script>
     <script src="/leads.js"></script>
     <script src="/facilities.js"></script>
+    <script src="/crm.js"></script>
     <script src="/app.js"></script>
   </body>
 </html>
