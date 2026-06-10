@@ -121,6 +121,17 @@ Save the referrals you've received (data **you** enter — never pulled from a h
 - **Access control:** leads are scoped to the owning agency; another account gets a 404.
 - **Status pipeline** (new → contacted → touring → application → placed → closed), optional "referred by" source, role-gated **View** (full / matching / partner), and delete. Endpoints: `GET/POST /api/leads`, `GET/POST/DELETE /api/leads/:id`.
 
+### 🏘️ Care-home inventory + resident matcher
+
+Build (or import) your facility inventory, then match a saved client to a ranked, compliant shortlist.
+
+- **Inventory:** add facilities manually, **import a CSV**, or **load CA demo data**. Per-agency, with read-only shared seed support. Fields: type, location, CA license #/status/violations, capacity, availability, levels of care, payors, price range, room types, languages, capabilities, contact, fee-paid-by-facility, etc.
+- **Deterministic matcher (`POST /api/match`, free):** scores each facility 0–100 with a per-criterion **Strong / Partial / Gap** fit (payor, level of care, location, budget, special needs, availability, room type, language). **Hard filters** down-rank a wrong payor or impossible level of care; **apparently unlicensed facilities are flagged and never recommended** ("report to CDSS"). Every recommendation carries the **California RCFE disclosures** (fee paid by facility, license #/status, known violations, last-verified date, "not legal advice"). Match from a lead saves the shortlist onto it.
+- **Endpoints:** `GET/POST /api/facilities`, `GET/POST(update)/DELETE /api/facilities/:id`, `POST /api/facilities/import`, `POST /api/facilities/sample`, `POST /api/match`.
+- **CSV template (header row):** `name,type,city,county,zip,ca_license_number,license_status,payors_accepted,price_min,price_max,room_types,languages,capabilities,availability_status` (array columns are comma/semicolon-separated inside quotes).
+
+> Facility data is organizational (not PHI) and stored plainly. A CDSS Community Care Licensing seed adapter (license status + violations) is **left as a documented stub** — manual entry + CSV ship now; verify the current public CCLD access method before wiring an automated import.
+
 ### 🗺️ Data coverage (optional, free)
 
 County selection is now a free **data-coverage preference** (which CA counties you focus on) — it no longer affects billing and doesn't gate the tools.
