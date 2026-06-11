@@ -1280,6 +1280,21 @@ async function handleCdssImport(req, res) {
   }
 }
 
+// Read-only config diagnostic: reports whether the running deployment can see
+// the CDSS env vars. Returns booleans only — never the values themselves.
+async function handleCdssStatus(req, res) {
+  const user = await currentUser(req);
+  if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
+  return sendJson(res, 200, {
+    configured: cdss.enabled(),
+    hasResourceId: !!process.env.CDSS_RESOURCE_ID,
+    hasDataUrl: !!process.env.CDSS_DATA_URL,
+    violationsConfigured: cdss.violationsEnabled(),
+    hasViolationsUrl: !!process.env.CDSS_VIOLATIONS_URL,
+    hasViolationsResourceId: !!process.env.CDSS_VIOLATIONS_RESOURCE_ID,
+  });
+}
+
 async function handleSampleFacilities(req, res) {
   const user = await currentUser(req);
   if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
@@ -1739,6 +1754,7 @@ async function route(req, res) {
   if (pathname === '/api/facilities/import' && method === 'POST') return handleImportFacilities(req, res);
   if (pathname === '/api/facilities/sample' && method === 'POST') return handleSampleFacilities(req, res);
   if (pathname === '/api/facilities/cdss-import' && method === 'POST') return handleCdssImport(req, res);
+  if (pathname === '/api/cdss-status' && method === 'GET') return handleCdssStatus(req, res);
   if (pathname.startsWith('/api/facilities/')) {
     const id = decodeURIComponent(pathname.slice('/api/facilities/'.length));
     if (method === 'GET') return handleGetFacility(req, res, id);
