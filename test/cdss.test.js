@@ -1,0 +1,46 @@
+'use strict';
+const { test } = require('node:test');
+const assert = require('node:assert');
+const cdss = require('../lib/cdss');
+
+test('mapRow maps a CHHS-style row into the facility schema', () => {
+  const row = {
+    'Facility Name': 'Sunny Elder Home',
+    'Facility Number': '347001234',
+    'Facility Status': 'LICENSED',
+    'Facility Address': '123 Main St',
+    'Facility City': 'Sacramento',
+    'County Name': 'Sacramento',
+    'Facility Zip': '95823',
+    'Facility Capacity': '6',
+  };
+  const f = cdss.mapRow(row);
+  assert.equal(f.name, 'Sunny Elder Home');
+  assert.equal(f.ca_license_number, '347001234');
+  assert.equal(f.license_status, 'licensed');
+  assert.equal(f.city, 'Sacramento');
+  assert.equal(f.capacity, 6);
+  assert.equal(f.type, 'board_and_care_RCFE'); // capacity <= 6
+  assert.equal(f.data_source, 'cdss');
+});
+
+test('mapRow infers assisted_living for larger capacity, normalizes status', () => {
+  const f = cdss.mapRow({ 'Facility Name': 'Big AL', 'Facility Number': '999', 'Facility Status': 'Closed', 'Facility Capacity': '80' });
+  assert.equal(f.type, 'assisted_living');
+  assert.equal(f.license_status, 'closed');
+});
+
+test('mapRow drops rows missing name or license', () => {
+  assert.equal(cdss.mapRow({ 'Facility Name': 'No License' }), null);
+  assert.equal(cdss.mapRow({ 'Facility Number': '123' }), null);
+});
+
+test('enabled() reflects env config', () => {
+  const prev = process.env.CDSS_DATA_URL;
+  delete process.env.CDSS_DATA_URL;
+  delete process.env.CDSS_RESOURCE_ID;
+  assert.equal(cdss.enabled(), false);
+  process.env.CDSS_DATA_URL = 'https://example.com/rcfe.csv';
+  assert.equal(cdss.enabled(), true);
+  if (prev == null) delete process.env.CDSS_DATA_URL; else process.env.CDSS_DATA_URL = prev;
+});

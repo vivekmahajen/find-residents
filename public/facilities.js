@@ -87,6 +87,22 @@
     try { await fetch('/api/facilities/sample', { method: 'POST' }); load(); } finally { seedBtn.disabled = false; }
   });
 
+  async function cdss(dryRun) {
+    const st = document.getElementById('cdss-status');
+    st.textContent = dryRun ? 'Previewing…' : 'Importing…';
+    try {
+      const r = await fetch('/api/facilities/cdss-import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ county: document.getElementById('cdss-county').value.trim(), dryRun }) });
+      const d = await r.json();
+      if (!r.ok) { st.textContent = d.error || 'CDSS import failed.'; return; }
+      if (dryRun) st.textContent = `Found ${d.count} facility/ies${d.preview && d.preview[0] ? ` — e.g. ${d.preview[0].name} (${d.preview[0].license_status})` : ''}.`;
+      else { st.textContent = `Imported ${d.created} facilities.`; load(); }
+    } catch { st.textContent = 'Network error.'; }
+  }
+  const cp = document.getElementById('cdss-preview');
+  const ci = document.getElementById('cdss-import');
+  if (cp) cp.addEventListener('click', () => cdss(true));
+  if (ci) ci.addEventListener('click', () => cdss(false));
+
   // Shared match renderer used by leads.js (View shortlist for a lead).
   window.renderMatch = function (data, target) {
     const fitClass = (f) => 'fit-' + String(f).toLowerCase();
