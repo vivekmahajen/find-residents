@@ -47,6 +47,18 @@ subsystem works in production. Most steps are UI clicks; a few use `curl`. Repla
 - [ ] **Load CA demo data** → facilities appear; change an availability and it persists.
 - [ ] **CSV import** a couple of rows → they appear.
 - [ ] **CDSS import** (if configured): run **Preview** first — confirm the count and that the column mapping looks right — then **Import**. Imported facilities carry license #/status and, if the violations dataset is configured, a **known-violations** summary.
+
+  **Configuring CDSS import** (set in Vercel → Settings → Environment Variables, then **redeploy** — env changes don't hot-reload). If unset, the importer returns *"CDSS import is not configured."*
+
+  - **Option A — smoke test (guaranteed):** point at the sample CSVs served from your own domain. Column headers already match the importer's default field map.
+    - `CDSS_DATA_URL` = `https://find-residents.vercel.app/sample-cdss-facilities.csv`
+    - `CDSS_VIOLATIONS_URL` = `https://find-residents.vercel.app/sample-cdss-violations.csv`
+    - Then Preview a county present in the sample (e.g. **Los Angeles**) → Import.
+  - **Option B — real live CHHS data** (Residential Elder Care Facility Locations):
+    - `CDSS_DATA_URL` = `https://data.chhs.ca.gov/dataset/00d9608d-53ee-4e93-990a-57cd220a1d4b/resource/dc9ddc4b-f4cf-4196-8ffa-e5a6505f2b8e/download/community-care-licensing-residential-elder-care-facility-locations.csv`
+    - Columns (`Facility Name/Number/Status/Type/City`, `County Name`, `Facility Zip/Capacity/Telephone Number`) are covered by the built-in map — no `CDSS_FIELD_MAP` needed.
+    - If the download URL 404s, grab the current CSV link from the [dataset page](https://data.chhs.ca.gov/dataset/community-care-licensing-residential-elder-care-facility-locations).
+  - `CDSS_VIOLATIONS_URL` is optional; without it, facilities import fine and *known violations* stays blank. Alternatively use `CDSS_RESOURCE_ID` (CKAN `datastore_search`) instead of `CDSS_DATA_URL`.
 - [ ] **Match** a saved client → ranked shortlist with Strong/Partial/Gap fit, **CA disclosures** on each, and **unlicensed facilities flagged & not recommended**.
 
 ## 7. CRM + sequences + cron
@@ -58,7 +70,7 @@ subsystem works in production. Most steps are UI clicks; a few use `curl`. Repla
   ```
   → returns counts; the overdue task emails you a **reminder**; the sequence sends its first **email**.
 - [ ] Click the **unsubscribe** link in a sequence email → confirmation page; the enrollment shows **stopped (unsubscribed)** and no further emails send.
-- [ ] **Vercel Cron** is scheduled (Project → Cron Jobs shows `/api/cron/run` every 15 min) and recent runs are 200.
+- [ ] **Vercel Cron** is scheduled (Project → Cron Jobs shows `/api/cron/run` daily at `0 13 * * *` — Hobby plan allows daily only) and recent runs are 200.
 
 ## 8. Billing (Stripe)
 - [ ] **Webhook endpoint** added in Stripe (Developers → Webhooks → `APP/api/stripe/webhook`) subscribed to `checkout.session.completed`, `invoice.paid`, `invoice.payment_failed`, `customer.subscription.deleted`; signing secret matches `STRIPE_WEBHOOK_SECRET`.
