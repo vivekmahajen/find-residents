@@ -1179,6 +1179,27 @@ main {
   padding-top: 0.85rem;
 }
 
+.call-bar { margin-top: 0.4rem; }
+.call-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  padding-top: 0.6rem;
+  border-top: 1px dashed var(--border);
+}
+.call-form .call-note {
+  flex: 1 1 220px;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+.call-followup-label { font-size: 0.85rem; color: var(--muted); }
+.call-followup-label input { width: 3rem; padding: 0.3rem; border: 1px solid var(--border); border-radius: 6px; }
+.call-status { font-size: 0.82rem; }
+
 .panel-error {
   color: #b42318;
   font-weight: 500;

@@ -42,8 +42,19 @@
   });
 
   // --- Contacts ---
+  async function loadActivities(ref) {
+    const head = $('activities-head');
+    const el = $('activities-list');
+    if (!ref) { if (head) head.hidden = true; el.innerHTML = ''; return; }
+    const { data } = await api('GET', '/api/activities?entityRef=' + encodeURIComponent(ref));
+    const acts = data.activities || [];
+    if (head) head.hidden = acts.length === 0;
+    el.innerHTML = acts.map((a) => `<div class="lead-row"><div class="lead-main"><strong>${esc(a.type)}</strong> <span class="muted">${esc(a.note || '')}</span><span class="muted">${new Date(a.createdAt).toLocaleString()} · ${esc(a.author || '')}</span></div></div>`).join('');
+  }
+
   async function loadContacts() {
     const ref = $('cn-source').value.trim();
+    loadActivities(ref);
     const { data } = await api('GET', '/api/sources/' + encodeURIComponent(ref || '_') + '/contacts');
     const el = $('contacts-list');
     const cs = data.contacts || [];
@@ -131,6 +142,7 @@
     loadTasks(); loadEnrollments();
   });
 
+  window.reloadCrmTasks = loadTasks;
   loadTasks();
   loadSequences();
   loadEnrollments();

@@ -142,12 +142,44 @@ function renderFacilities(data) {
         <button type="button" class="strategy-btn">Pain points &amp; approach · ${actionCredits('document')} cr →</button>
       </div>
       <div class="strategy-panel" hidden></div>
+      <div class="call-bar">
+        <button type="button" class="link-btn log-call-btn">📞 Log call</button>
+      </div>
+      <div class="call-form" hidden>
+        <input class="call-note" type="text" placeholder="Call notes — who you reached, outcome" />
+        <label class="call-followup-label">Follow-up in <input class="call-followup" type="number" min="0" value="3" /> days</label>
+        <button type="button" class="call-save deck-btn">Save call log</button>
+        <span class="call-status muted"></span>
+      </div>
     `;
 
     const btn = card.querySelector('.strategy-btn');
     const select = card.querySelector('.role-select');
     const panel = card.querySelector('.strategy-panel');
     btn.addEventListener('click', () => runStrategy(f, select.value, typeId, btn, panel));
+
+    // Call logging (phone-first outreach; no contact/email needed).
+    const logCallBtn = card.querySelector('.log-call-btn');
+    const callForm = card.querySelector('.call-form');
+    logCallBtn.addEventListener('click', () => { callForm.hidden = !callForm.hidden; if (!callForm.hidden) card.querySelector('.call-note').focus(); });
+    card.querySelector('.call-save').addEventListener('click', async () => {
+      const note = card.querySelector('.call-note').value.trim();
+      const days = Number(card.querySelector('.call-followup').value) || 0;
+      const st = card.querySelector('.call-status');
+      st.textContent = 'Saving…';
+      try {
+        await fetch('/api/activities', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ entityType: 'source', entityRef: f.npi, type: 'call', note: note || `Logged a call to ${f.name}` }) });
+        if (days > 0) {
+          const due = new Date(Date.now() + days * 86400000).toISOString();
+          await fetch('/api/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: `Follow up: ${f.name}`, dueAt: due, linkedType: 'source', linkedRef: f.npi }) });
+        }
+        st.textContent = `Logged${days > 0 ? ` · follow-up task in ${days}d` : ''} ✓`;
+        card.querySelector('.call-note').value = '';
+        if (window.reloadCrmTasks) window.reloadCrmTasks();
+      } catch {
+        st.textContent = 'Network error.';
+      }
+    });
 
     // Prefill the CRM contact form's source ref (the NPI) from this result.
     const addContactBtn = card.querySelector('.add-contact-btn');
