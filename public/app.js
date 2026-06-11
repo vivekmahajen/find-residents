@@ -130,6 +130,7 @@ function renderFacilities(data) {
       <div class="hospital-meta">
         ${phone ? `<a href="tel:${phoneDigits}">📞 ${escapeHtml(phone)}</a>` : ''}
         <a href="${f.mapsUrl}" target="_blank" rel="noopener">🗺️ Map</a>
+        <a href="https://www.google.com/search?q=${encodeURIComponent(`${f.name} ${f.city || ''} case management discharge planning contact`)}" target="_blank" rel="noopener">🔎 Find contact</a>
         <span class="npi">NPI ${escapeHtml(f.npi)}</span>
         <button type="button" class="link-btn add-contact-btn">+ Add CRM contact</button>
       </div>
