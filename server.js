@@ -1302,7 +1302,14 @@ async function handleCdssImport(req, res) {
     return sendJson(res, 200, { created });
   } catch (err) {
     if (err instanceof cdss.CdssUnavailable) return sendJson(res, 503, { error: err.message, needsSetup: true });
-    return sendJson(res, 502, { error: 'CDSS fetch failed. Verify the dataset URL/resource id and column mapping.', detail: String(err.message || err) });
+    const msg = String(err.message || err);
+    const blocked = /HTML page/i.test(msg);
+    return sendJson(res, 502, {
+      error: blocked
+        ? 'The CDSS host blocked the server from downloading the file (it returned a web page, not data). Use the “CSV import” box below instead: download the CSV from CHHS in your browser, then paste it there.'
+        : 'CDSS fetch failed. Verify the dataset URL/resource id and column mapping.',
+      detail: msg,
+    });
   }
 }
 
