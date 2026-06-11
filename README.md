@@ -47,7 +47,8 @@ npm test           # runs the test suite (node --test; no network/keys needed)
 
 - Locally (no `DATABASE_URL`) it uses the JSON file store and works without any cloud setup. The AI, deck, and billing features activate when their keys are set (see below). Requires Node 18+.
 - **First run / onboarding:** new agencies see a **Getting started** checklist (build profile → load CA demo facilities → search a source → add a contact → save a client → run a match) driven by `GET /api/onboarding`; it disappears once setup is complete. "Load CA demo data" seeds sample facilities so matching is demoable on day one.
-- **Tests** (`test/`, run with `npm test`): matcher scoring/hard-filters/unlicensed, redaction (no leaks) + role-gating, pricing (free-block/overage/past-due/renewal/annual), reporting funnel + admin usage, CRM (unsubscribe token, task buckets), and an in-process integration suite (cross-agency access control → 404, facility match-from-lead, onboarding, admin 403, Stripe `invoice.paid` refill).
+- **Tests** (`test/`, run with `npm test`): matcher scoring/hard-filters/unlicensed, redaction (no leaks) + role-gating, pricing (free-block/overage/past-due/renewal/annual), reporting funnel + admin usage, CRM (unsubscribe token, task buckets), CDSS row→facility + violations mapping, and an in-process integration suite (cross-agency access control → 404, facility match-from-lead, onboarding, admin 403, Stripe `invoice.paid` refill).
+- **First production deploy:** work through [`DEPLOY-SMOKE-TEST.md`](DEPLOY-SMOKE-TEST.md) to verify every subsystem (auth, AI, billing/webhooks, email, cron, CDSS, reporting) live.
 
 ### 🔑 Accounts & login
 
@@ -157,7 +158,8 @@ Build (or import) your facility inventory, then match a saved client to a ranked
 
 - Set **`CDSS_RESOURCE_ID`** (a CKAN resource id on `data.chhs.ca.gov`, queried via `datastore_search`) **or** **`CDSS_DATA_URL`** (any public CSV/JSON export URL). Optionally override column names with **`CDSS_FIELD_MAP`** (JSON) and the CKAN host with `CDSS_BASE`.
 - Find the current dataset on [data.chhs.ca.gov](https://data.chhs.ca.gov) (search "Community Care Licensing residential elder"), copy the resource id or CSV URL, and **run a dry-run preview first** (the UI's "Preview" button) to confirm the column mapping before importing.
-- Capacity ≤ 6 is mapped to board-and-care, larger to assisted living (RCFE licenses don't distinguish). **Violations** live in a separate CDSS complaints dataset — left blank with a "verify on CDSS" note; wire a second `CDSS_DATA_URL`-style source the same way if you want them inline.
+- Capacity ≤ 6 is mapped to board-and-care, larger to assisted living (RCFE licenses don't distinguish).
+- **Violations/citations** (separate CDSS dataset): set `CDSS_VIOLATIONS_RESOURCE_ID` or `CDSS_VIOLATIONS_URL` (+ optional `CDSS_VIOLATIONS_FIELD_MAP`). When configured, imported facilities are joined by license number and carry a `known_violations` summary (count + latest citation); otherwise the field stays blank with a "verify on CDSS" note.
 - Without the env vars, the endpoint returns a clear 503; manual entry + CSV import always work.
 
 ### 🗺️ Data coverage (optional, free)
