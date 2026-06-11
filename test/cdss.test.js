@@ -35,6 +35,21 @@ test('mapRow drops rows missing name or license', () => {
   assert.equal(cdss.mapRow({ 'Facility Number': '123' }), null);
 });
 
+test('mapViolation maps a citation row; summarize gives latest', () => {
+  const v1 = cdss.mapViolation({ 'Facility Number': '347001234', Type: 'Type B', Date: '2023-01-10', Description: 'staffing' });
+  const v2 = cdss.mapViolation({ 'Facility Number': '347001234', Type: 'Type A', Date: '2024-05-20', Description: 'medication' });
+  assert.equal(v1.license, '347001234');
+  assert.equal(cdss.mapViolation({ Type: 'X' }), null); // no license -> dropped
+  const summary = cdss.summarizeViolations([v1, v2]);
+  assert.match(summary, /2 citation/);
+  assert.match(summary, /2024-05-20/); // latest first
+  assert.match(summary, /medication/);
+});
+
+test('summarizeViolations is empty for no citations', () => {
+  assert.equal(cdss.summarizeViolations([]), '');
+});
+
 test('enabled() reflects env config', () => {
   const prev = process.env.CDSS_DATA_URL;
   delete process.env.CDSS_DATA_URL;
