@@ -122,6 +122,13 @@ Save the referrals you've received (data **you** enter — never pulled from a h
 - **Access control:** leads are scoped to the owning agency; another account gets a 404.
 - **Status pipeline** (new → contacted → touring → application → placed → closed), optional "referred by" source, role-gated **View** (full / matching / partner), and delete. Endpoints: `GET/POST /api/leads`, `GET/POST/DELETE /api/leads/:id`.
 
+### 📊 Reporting + funnel instrumentation
+
+Every meaningful action emits a lightweight event (`source_searched`, `contact_added`, `lead_created`, `lead_stage_changed`/`tour_scheduled`/`application`/`placement_made`, `case_generated`, `deck_built`, `email_sent`, `match_run`, `credits_charged`, …) — fire-and-forget, never blocking the request.
+
+- **`GET /api/reports`** (per-agency, `?days=`): the **placement funnel** (sources contacted → leads → tours → applications → placements) with step conversion rates, **time-to-placement**, a **source ROI leaderboard** (placements + revenue by referring source), activity volume, and credit usage. The dashboard renders it with a period selector.
+- **`GET /api/admin/usage`** (admin only): cross-agency engagement — **weekly-active agencies**, events/agency/week, feature adoption, and last-active. This is the Phase-1 metric (design partners using it weekly). Shown as an admin-only panel.
+
 ### 📇 Outreach CRM — contacts, tasks, activities, sequences
 
 Lightweight CRM for working referral sources, all per-agency and access-controlled.

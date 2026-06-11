@@ -343,6 +343,33 @@
         <div id="facilities-list" class="leads-list"></div>
       </section>
 
+      <!-- Reports: placement funnel + source ROI -->
+      <section class="panel" id="reports-panel">
+        <div class="plan-head">
+          <div><h2>Reports</h2><p class="subtitle">Your placement funnel, conversion rates, and source performance.</p></div>
+          <select id="rp-period">
+            <option value="7">Last 7 days</option>
+            <option value="30" selected>Last 30 days</option>
+            <option value="90">Last 90 days</option>
+            <option value="0">All time</option>
+          </select>
+        </div>
+        <div id="funnel" class="funnel"></div>
+        <div id="report-meta" class="report-meta"></div>
+        <h3>Source leaderboard</h3>
+        <div id="leaderboard"></div>
+        <h3>Activity</h3>
+        <div id="activity-stats" class="report-meta"></div>
+      </section>
+
+      <!-- Admin: cross-agency usage (admins only) -->
+      <section class="panel" id="admin-panel" hidden>
+        <h2>Founder usage <span class="muted">(admin)</span></h2>
+        <p class="subtitle">Weekly-active design partners and per-agency engagement — the Phase-1 metric.</p>
+        <div id="admin-summary" class="report-meta"></div>
+        <div id="admin-list" class="leads-list"></div>
+      </section>
+
       <!-- Outreach CRM: contacts, tasks, sequences -->
       <section class="panel" id="crm-panel">
         <div class="plan-head">
@@ -447,6 +474,7 @@
     <script src="/leads.js"></script>
     <script src="/facilities.js"></script>
     <script src="/crm.js"></script>
+    <script src="/reports.js"></script>
     <script src="/app.js"></script>
   </body>
 </html>

@@ -32,6 +32,7 @@ const cryptoLib = require('./lib/crypto');
 const matcher = require('./lib/matcher');
 const csvLib = require('./lib/csv');
 const crm = require('./lib/crm');
+const reports = require('./lib/reports');
 
 const IS_PROD = process.env.NODE_ENV === 'production';
 
@@ -514,6 +515,8 @@ async function handleStrategy(req, res) {
     strategy.savingsComputed = computeSavings(strategy.savings);
     const charged = admin ? { mode: 'admin', creditsCharged: 0 } : pricing.charge(acct, 'document');
     if (!admin) await store.updateUser(user.id, { account: acct });
+    await emitEvent(user.id, 'case_generated', facility.name, { role });
+    if (charged && charged.creditsCharged) await emitEvent(user.id, 'credits_charged', null, { action: 'document', credits: charged.creditsCharged });
     return sendJson(res, 200, {
       facility: facility.name, role, painPoints, strategy, usedProfile,
       charged, account: accountViewFor(user, acct),
@@ -572,7 +575,9 @@ async function handleDeck(req, res) {
     if (!admin) {
       pricing.charge(acct, 'deck');
       await store.updateUser(user.id, { account: acct });
+      await emitEvent(user.id, 'credits_charged', null, { action: 'deck', credits: 30 });
     }
+    await emitEvent(user.id, 'deck_built', facility.name, { role });
 
     const safeName = String(facility.name).replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'deck';
     res.writeHead(200, {
@@ -1058,6 +1063,7 @@ async function handleCreateLead(req, res) {
     source,
     data: cryptoLib.encryptJson(record),
   });
+  await emitEvent(user.id, 'lead_created', lead.id, { source });
   return sendJson(res, 201, { lead: leadSummary(lead), withheld, encrypted: cryptoLib.enabled() });
 }
 
@@ -1097,6 +1103,7 @@ async function handleUpdateLead(req, res, id) {
   const body = await readJsonBody(req).catch(() => null);
   if (!body) return sendJson(res, 400, { error: 'Invalid request.' });
 
+  const prevStatus = lead.status; // capture before update (file store aliases the object)
   const patch = {};
   if (body.status && LEAD_STATUSES.includes(body.status)) patch.status = body.status;
   if ('sourceHospital' in body) patch.source = body.sourceHospital ? String(body.sourceHospital).slice(0, 200) : null;
@@ -1105,6 +1112,15 @@ async function handleUpdateLead(req, res, id) {
     patch.data = cryptoLib.encryptJson(record);
   }
   const updated = await store.updateLead(id, patch);
+
+  // Funnel events on a stage change.
+  if (patch.status && patch.status !== prevStatus) {
+    const src = updated.source || null;
+    await emitEvent(user.id, 'lead_stage_changed', id, { to: patch.status, source: src });
+    if (patch.status === 'touring') await emitEvent(user.id, 'tour_scheduled', id, { source: src });
+    if (patch.status === 'application') await emitEvent(user.id, 'application', id, { source: src });
+    if (patch.status === 'placed') await emitEvent(user.id, 'placement_made', id, { source: src, revenue: Number(body.revenue) || 0 });
+  }
   return sendJson(res, 200, { lead: leadSummary(updated) });
 }
 
@@ -1268,6 +1284,7 @@ async function handleMatch(req, res) {
 
   const facilities = await store.listFacilities(user.id);
   const results = matcher.matchFacilities(profile, facilities);
+  await emitEvent(user.id, 'match_run', lead ? lead.id : null, { count: results.length });
 
   // Optionally attach the shortlist (ids + scores only — no PII) onto the lead.
   if (body.save && lead) {
@@ -1277,6 +1294,35 @@ async function handleMatch(req, res) {
   }
 
   return sendJson(res, 200, { profile, count: results.length, results });
+}
+
+// ---- Event instrumentation + reporting (Workstream 4) ----------------------
+
+// Lightweight, guarded event write. Awaited (a single insert) so it persists on
+// serverless, but a failure never breaks the request.
+async function emitEvent(agencyId, type, entityRef, metadata) {
+  try {
+    await store.createRecord({ agencyId, kind: 'event', data: { type, entityRef: entityRef || null, metadata: metadata || {} } });
+  } catch {
+    // never block the request on analytics
+  }
+}
+
+async function handleReports(req, res, urlObj) {
+  const user = await currentUser(req);
+  if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
+  const days = Number(urlObj.searchParams.get('days'));
+  const events = await store.listRecords(user.id, 'event');
+  return sendJson(res, 200, reports.buildReport(events, { now: Date.now(), days: Number.isFinite(days) ? days : 30 }));
+}
+
+async function handleAdminUsage(req, res) {
+  const user = await currentUser(req);
+  if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
+  if (!adminLib.isAdmin(user)) return sendJson(res, 403, { error: 'Admins only.' });
+  const events = await store.listAllRecords('event');
+  const users = await store.listUsers();
+  return sendJson(res, 200, reports.buildAdminUsage(events, users, Date.now()));
 }
 
 // ---- Lightweight CRM: contacts, tasks, activities, sequences (Workstream 3) -
@@ -1330,6 +1376,7 @@ async function handleCreateContact(req, res, sourceRef) {
       enc: cryptoLib.encryptJson(pii),
     },
   });
+  await emitEvent(user.id, 'contact_added', rec.data.sourceRef, {});
   return sendJson(res, 201, { contact: contactPublic(rec) });
 }
 async function handleDeleteContact(req, res, id) {
@@ -1409,6 +1456,7 @@ async function handleCreateActivity(req, res) {
       author: user.username,
     },
   });
+  await emitEvent(user.id, 'activity_logged', String(body.entityRef), { type: rec.data.type });
   return sendJson(res, 201, { activity: { id: rec.id, ...rec.data, createdAt: rec.createdAt } });
 }
 async function handleListActivities(req, res, urlObj) {
@@ -1464,6 +1512,7 @@ async function handleEnroll(req, res, seqId) {
     kind: 'enrollment',
     data: { sequenceId: seqId, sequenceName: seq.data.name, contactId: contact.id, contactEmail: email, status: 'active', currentStep: 0, nextRunAt: Date.now() + firstDelay * DAY_MS, enrolledAt: Date.now() },
   });
+  await emitEvent(user.id, 'sequence_enrolled', contact.id, { sequence: seq.data.name });
   return sendJson(res, 201, { enrollment: { id: rec.id, ...rec.data } });
 }
 async function handleListEnrollments(req, res) {
@@ -1542,6 +1591,7 @@ async function runDueSequences(now) {
       const t = crm.unsubToken(email, e.agencyId);
       const unsubscribeUrl = `${base}/api/unsubscribe?e=${encodeURIComponent(email)}&a=${encodeURIComponent(e.agencyId)}&t=${t}`;
       mailer.send({ to: d.contactEmail, subject: step.subject || 'Following up', category: 'marketing', text: step.body, html: `<p>${String(step.body || '').replace(/\n/g, '<br>')}</p>`, unsubscribeUrl }).catch(() => {});
+      await emitEvent(e.agencyId, 'email_sent', d.contactId, { sequence: d.sequenceName });
     }
     const next = d.currentStep + 1;
     const done = next >= seq.data.steps.length;
@@ -1674,6 +1724,10 @@ async function route(req, res) {
   if (pathname === '/api/unsubscribe' && method === 'GET') return handleUnsubscribe(req, res, urlObj); // public
   if (pathname === '/api/cron/run') return handleCron(req, res, urlObj);
 
+  // --- Reporting (auth) + admin usage (admin) ---
+  if (pathname === '/api/reports' && method === 'GET') return handleReports(req, res, urlObj);
+  if (pathname === '/api/admin/usage' && method === 'GET') return handleAdminUsage(req, res);
+
   // --- Client / lead tracker (auth) ---
   if (pathname === '/api/leads' && method === 'GET') return handleListLeads(req, res);
   if (pathname === '/api/leads' && method === 'POST') return handleCreateLead(req, res);
@@ -1707,7 +1761,9 @@ async function route(req, res) {
     return sendJson(res, 200, { types, default: DEFAULT_TYPE });
   }
   if (pathname === '/api/hospitals') {
-    if (!(await currentUser(req))) return sendJson(res, 401, { error: 'Please log in.' });
+    const u = await currentUser(req);
+    if (!u) return sendJson(res, 401, { error: 'Please log in.' });
+    emitEvent(u.id, 'source_searched', null, { location: urlObj.searchParams.get('location'), type: urlObj.searchParams.get('type') }); // fire-and-forget
     return handleApi(req, res, urlObj); // search is free
   }
   if (pathname === '/api/strategy' && method === 'POST') {
