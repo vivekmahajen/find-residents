@@ -42,9 +42,12 @@ The app runs as a standalone Node server locally *and* as a Vercel serverless fu
 ```bash
 npm install        # pulls pg, @anthropic-ai/sdk, pptxgenjs, stripe
 npm start          # or: node server.js  → http://localhost:3000 (login page)
+npm test           # runs the test suite (node --test; no network/keys needed)
 ```
 
 - Locally (no `DATABASE_URL`) it uses the JSON file store and works without any cloud setup. The AI, deck, and billing features activate when their keys are set (see below). Requires Node 18+.
+- **First run / onboarding:** new agencies see a **Getting started** checklist (build profile → load CA demo facilities → search a source → add a contact → save a client → run a match) driven by `GET /api/onboarding`; it disappears once setup is complete. "Load CA demo data" seeds sample facilities so matching is demoable on day one.
+- **Tests** (`test/`, run with `npm test`): matcher scoring/hard-filters/unlicensed, redaction (no leaks) + role-gating, pricing (free-block/overage/past-due/renewal/annual), reporting funnel + admin usage, CRM (unsubscribe token, task buckets), and an in-process integration suite (cross-agency access control → 404, facility match-from-lead, onboarding, admin 403, Stripe `invoice.paid` refill).
 
 ### 🔑 Accounts & login
 

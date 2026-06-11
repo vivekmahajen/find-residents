@@ -938,6 +938,15 @@ main {
 .rep-table th, .rep-table td { text-align: left; padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--border); }
 .rep-table th { color: var(--muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; }
 
+.onboard { border: 1px solid rgba(31, 111, 235, 0.3); }
+.onboard-steps { list-style: none; margin: 0.5rem 0 0; padding: 0; }
+.onboard-step { display: flex; align-items: center; gap: 0.6rem; padding: 0.4rem 0; border-bottom: 1px dashed var(--border); font-size: 0.95rem; }
+.onboard-step:last-child { border-bottom: none; }
+.onboard-step.done .ob-label { color: var(--muted); text-decoration: line-through; }
+.ob-check { font-weight: 700; color: var(--brand); width: 1.2rem; text-align: center; }
+.onboard-step.done .ob-check { color: var(--accent); }
+.ob-hint { font-size: 0.8rem; margin-left: auto; }
+
 #profile-form fieldset {
   border: 1px solid var(--border);
   border-radius: 10px;

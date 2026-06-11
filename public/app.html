@@ -15,6 +15,15 @@
     </header>
 
     <main>
+      <!-- Getting started (shown until setup is complete) -->
+      <section class="panel onboard" id="onboard-panel" hidden>
+        <div class="plan-head">
+          <div><h2>👋 Getting started</h2><p class="subtitle">Finish these steps to run your first placement match.</p></div>
+          <button type="button" id="onboard-dismiss" class="link-btn">Dismiss</button>
+        </div>
+        <ul id="onboard-steps" class="onboard-steps"></ul>
+      </section>
+
       <!-- Plan & credits -->
       <section class="panel" id="plan-panel">
         <div class="plan-head">
@@ -475,6 +484,7 @@
     <script src="/facilities.js"></script>
     <script src="/crm.js"></script>
     <script src="/reports.js"></script>
+    <script src="/onboarding.js"></script>
     <script src="/app.js"></script>
   </body>
 </html>
