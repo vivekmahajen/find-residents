@@ -27,13 +27,17 @@ export default {
             <p id="cdss-status" class="plan-status" aria-live="polite"></p>
           </div>
           <div class="cov-block">
-            <h3>CSV import / demo</h3>
-            <p class="muted" style="margin:.2rem 0 .4rem">Paste your own columns <em>or</em> a CHHS facility export (Facility Name, Facility Number…) downloaded in your browser — both work.</p>
-            <textarea id="fa-csv" rows="3" placeholder="name,type,city,price_min,price_max,payors_accepted…  — or paste a CHHS CSV"></textarea>
+            <h3>Import facilities</h3>
+            <p class="muted" style="margin:.2rem 0 .4rem">Download the CHHS RCFE CSV in your browser, then <strong>upload the file here</strong> — one click, no copy-paste. CHHS columns are mapped automatically.</p>
+            <input id="fa-file" type="file" accept=".csv,text/csv,text/plain" hidden />
             <div class="cov-btn-row">
-              <button class="link-btn" id="import-facilities" type="button">Import CSV</button>
+              <button class="primary-btn" id="upload-csv" type="button">Upload CSV file…</button>
               <button class="link-btn" id="seed-facilities" type="button">Load CA demo data</button>
             </div>
+            <details style="margin-top:.5rem"><summary class="muted">…or paste CSV text instead</summary>
+              <textarea id="fa-csv" rows="3" placeholder="name,type,city,…  — or paste a CHHS export"></textarea>
+              <div class="cov-btn-row"><button class="link-btn" id="import-facilities" type="button">Import pasted text</button></div>
+            </details>
             <p id="import-status" class="plan-status" aria-live="polite"></p>
           </div>
         </div>
@@ -95,14 +99,35 @@ export default {
       } catch { $('facility-status').textContent = 'Network error.'; } finally { $('add-facility').disabled = false; }
     });
 
-    $('import-facilities').addEventListener('click', async () => {
-      $('import-facilities').disabled = true; $('import-status').textContent = 'Importing…';
+    // Shared importer for both the file upload and the paste box.
+    async function importCsvText(csv, label) {
+      if (!csv || !csv.trim()) { $('import-status').textContent = 'Nothing to import.'; return; }
+      $('import-status').textContent = 'Importing…';
       try {
-        const r = await fetch('/api/facilities/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ csv: $('fa-csv').value }) });
-        const d = await r.json();
-        $('import-status').textContent = r.ok ? `Imported ${d.created}${d.errors && d.errors.length ? ' (' + d.errors.length + ' skipped)' : ''}.` : (d.error || 'Failed.');
-        if (r.ok) load();
-      } catch { $('import-status').textContent = 'Network error.'; } finally { $('import-facilities').disabled = false; }
+        const r = await fetch('/api/facilities/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ csv }) });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) { $('import-status').textContent = d.error || 'Import failed.'; return; }
+        const skipped = d.errors && d.errors.length ? ` (${d.errors.length} skipped)` : '';
+        $('import-status').textContent = `${label}: imported ${d.created}${skipped}.`;
+        load();
+      } catch { $('import-status').textContent = 'Network error.'; }
+    }
+
+    $('upload-csv').addEventListener('click', () => $('fa-file').click());
+    $('fa-file').addEventListener('change', async (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      $('import-status').textContent = `Reading ${file.name}…`;
+      try {
+        const text = await file.text();
+        await importCsvText(text, file.name);
+      } catch { $('import-status').textContent = 'Could not read that file.'; }
+      e.target.value = ''; // allow re-selecting the same file
+    });
+
+    $('import-facilities').addEventListener('click', async () => {
+      $('import-facilities').disabled = true;
+      try { await importCsvText($('fa-csv').value, 'Pasted'); } finally { $('import-facilities').disabled = false; }
     });
 
     $('seed-facilities').addEventListener('click', async () => {
