@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Find-Residents</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body class="shell-body">
+    <a class="skip-link" href="#view">Skip to content</a>
+    <div class="shell">
+      <aside class="sidebar" id="sidebar" aria-label="Primary navigation">
+        <div class="sidebar-brand">🏥 <span>Find-Residents</span></div>
+        <nav class="sidebar-nav" id="nav" aria-label="Views"></nav>
+      </aside>
+
+      <div class="shell-main">
+        <header class="shell-header">
+          <button class="hamburger" id="hamburger" aria-label="Open menu" aria-expanded="false" aria-controls="sidebar">☰</button>
+          <h2 class="view-title" id="view-title">…</h2>
+          <span class="shell-spacer"></span>
+          <div class="user-menu" id="user-menu"></div>
+        </header>
+        <main class="outlet" id="view" tabindex="-1"></main>
+      </div>
+
+      <div class="drawer-overlay" id="overlay" hidden></div>
+    </div>
+    <script type="module" src="/shell.js"></script>
+  </body>
+</html>
