@@ -14,11 +14,15 @@ const store = {
 // Add a view = add one entry here + a /widgets/<id>.js module. No shell edits.
 const REGISTRY = [
   { id: 'home', label: 'Home', icon: '🏠', requiresAuth: true, load: () => import('/widgets/home.js') },
-  { id: 'profile', label: 'Profile', icon: '🪪', requiresAuth: true, load: () => import('/widgets/profile.js') },
+  { id: 'resources', label: 'Resources', icon: '🏥', requiresAuth: true, load: () => import('/widgets/resources.js') },
+  { id: 'coverage', label: 'CDSS Coverage', icon: '🗺️', requiresAuth: true, load: () => import('/widgets/coverage.js') },
   { id: 'reports', label: 'Reports', icon: '📊', requiresAuth: true, load: () => import('/widgets/reports.js') },
+  { id: 'pricing', label: 'Pricing', icon: '💳', requiresAuth: true, load: () => import('/widgets/pricing.js') },
+  { id: 'profile', label: 'Profile', icon: '🪪', requiresAuth: true, load: () => import('/widgets/profile.js') },
   { id: 'login', label: 'Log in', icon: '🔑', requiresAuth: false, load: () => import('/widgets/login.js') },
 ];
-// External link (not a widget) — the existing full workspace until it's migrated.
+// External link (not a widget) — the live workspace where the day-to-day work
+// happens (referral search → leads → CRM). Stays the operational hub.
 const EXTERNAL = [{ id: 'classic', label: 'Workspace ↗', icon: '🗂️', href: '/app', requiresAuth: true }];
 
 const byId = (id) => REGISTRY.find((e) => e.id === id);
