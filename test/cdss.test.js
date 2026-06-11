@@ -2,6 +2,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
 const cdss = require('../lib/cdss');
+const csv = require('../lib/csv');
 
 test('mapRow maps a CHHS-style row into the facility schema', () => {
   const row = {
@@ -48,6 +49,20 @@ test('mapViolation maps a citation row; summarize gives latest', () => {
 
 test('summarizeViolations is empty for no citations', () => {
   assert.equal(cdss.summarizeViolations([]), '');
+});
+
+test('csvToObjects auto-detects tab-separated spreadsheet paste', () => {
+  const comma = 'Facility Name,Facility Number\nA Home,111';
+  const tabbed = 'Facility Name\tFacility Number\nA Home\t111';
+  assert.equal(csv.detectDelimiter(comma), ',');
+  assert.equal(csv.detectDelimiter(tabbed), '\t');
+  const o = csv.csvToObjects(tabbed)[0];
+  assert.equal(o['Facility Name'], 'A Home');
+  assert.equal(o['Facility Number'], '111');
+  // And the mapper turns that pasted row into a facility.
+  const f = cdss.mapRow(csv.csvToObjects(tabbed)[0]);
+  assert.equal(f.name, 'A Home');
+  assert.equal(f.ca_license_number, '111');
 });
 
 test('enabled() reflects env config', () => {
