@@ -141,7 +141,7 @@ Lightweight CRM for working referral sources, all per-agency and access-controll
 - **Tasks** with due dates (today / overdue / upcoming); due tasks email the agency a reminder via cron. `GET/POST /api/tasks`, `POST/DELETE /api/tasks/:id`.
 - **Activities** — append-only call/email/meeting/note timeline per entity. `POST /api/activities`, `GET /api/activities?entityRef=…`.
 - **Email sequences** — named multi-step cadences (template + delay days). Enroll a consented contact; a cron job sends due steps and **stops on unsubscribe** (CAN-SPAM footer + signed unsubscribe link) or manual stop. **Phone/SMS steps are manual tasks only — never auto-dialed/texted.** `GET/POST /api/sequences`, `POST /api/sequences/:id/enroll`, `GET /api/enrollments`, `POST /api/enrollments/:id/stop`, public `GET /api/unsubscribe`.
-- **Cron:** `GET/POST /api/cron/run` processes due reminders + sequence steps. Scheduled via **Vercel Cron** (`vercel.json` → every 15 min). Protect it with `CRON_SECRET` (Vercel injects it as `Authorization: Bearer`); locally it runs without a secret and there's a "Run cron now" button.
+- **Cron:** `GET/POST /api/cron/run` processes due reminders + sequence steps. Scheduled via **Vercel Cron** (`vercel.json`). The default schedule is **once daily** (`0 13 * * *`) because the Vercel **Hobby plan only allows daily cron** — on Pro you can tighten it to `*/15 * * * *` (every 15 min). Protect it with `CRON_SECRET` (Vercel injects it as `Authorization: Bearer`); locally it runs without a secret and there's a "Run cron now" button. You can also trigger it from any external scheduler if you prefer.
 
 ### 🏘️ Care-home inventory + resident matcher
 
