@@ -115,8 +115,20 @@ export default {
         const r = await fetch('/api/facilities/cdss-import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ county: $('cdss-county').value.trim(), dryRun }) });
         const d = await r.json();
         if (!r.ok) { $('cdss-status').textContent = d.error || 'CDSS import failed.'; return; }
-        if (dryRun) $('cdss-status').textContent = `Found ${d.count} facility/ies${d.preview && d.preview[0] ? ` — e.g. ${d.preview[0].name} (${d.preview[0].license_status})` : ''}.`;
-        else { $('cdss-status').textContent = `Imported ${d.created} facilities.`; load(); }
+        if (dryRun) {
+          const dg = d.diagnostic || {};
+          if (d.count > 0) {
+            $('cdss-status').textContent = `Found ${d.count} facility/ies${d.preview && d.preview[0] ? ` — e.g. ${d.preview[0].name} (${d.preview[0].license_status})` : ''}.`;
+          } else {
+            // Zero matched — show WHY (fetched rows, columns seen, counties seen).
+            const seen = (dg.countiesSeen || []).join(', ');
+            $('cdss-status').innerHTML = `Found 0 for that county. <span class="muted">Source fetched <strong>${dg.fetchedRows || 0}</strong> rows`
+              + `${dg.mappedRows != null ? `, mapped <strong>${dg.mappedRows}</strong>` : ''}.`
+              + `${dg.columns && dg.columns.length ? ` Columns: ${esc(dg.columns.join(', '))}.` : ''}`
+              + `${seen ? ` Counties in data: ${esc(seen)}.` : ''}`
+              + `${dg.fetchedRows === 0 && dg.sampleRaw ? ` First bytes: ${esc(String(dg.sampleRaw))}` : ''}</span>`;
+          }
+        } else { $('cdss-status').textContent = `Imported ${d.created} facilities.`; load(); }
       } catch { $('cdss-status').textContent = 'Network error.'; }
     }
     $('cdss-preview').addEventListener('click', () => cdss(true));

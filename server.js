@@ -1264,10 +1264,16 @@ async function handleCdssImport(req, res) {
     return sendJson(res, 503, { error: 'CDSS import is not configured. Set CDSS_RESOURCE_ID or CDSS_DATA_URL (public CHHS licensing dataset).', needsSetup: true });
   }
   try {
-    const facs = await cdss.fetchFacilities({ county: body.county, city: body.city, limit: Math.min(Number(body.limit) || 200, 1000) });
+    const limit = Math.min(Number(body.limit) || 200, 1000);
     if (body.dryRun) {
-      return sendJson(res, 200, { count: facs.length, preview: facs.slice(0, 10) });
+      const d = await cdss.probeSource({ county: body.county, city: body.city, limit });
+      return sendJson(res, 200, {
+        count: d.countyMatched,
+        preview: d.facilities.slice(0, 10),
+        diagnostic: { sourceType: d.sourceType, fetchedRows: d.fetchedRows, columns: d.columns, mappedRows: d.mappedRows, countyMatched: d.countyMatched, countiesSeen: d.countiesSeen, sampleRaw: d.sampleRaw },
+      });
     }
+    const facs = await cdss.fetchFacilities({ county: body.county, city: body.city, limit });
     let created = 0;
     for (const f of facs) {
       await store.createFacility(normalizeFacility(f, user.id));
