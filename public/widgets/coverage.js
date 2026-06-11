@@ -28,7 +28,8 @@ export default {
           </div>
           <div class="cov-block">
             <h3>CSV import / demo</h3>
-            <textarea id="fa-csv" rows="3" placeholder="name,type,city,price_min,price_max,payors_accepted…"></textarea>
+            <p class="muted" style="margin:.2rem 0 .4rem">Paste your own columns <em>or</em> a CHHS facility export (Facility Name, Facility Number…) downloaded in your browser — both work.</p>
+            <textarea id="fa-csv" rows="3" placeholder="name,type,city,price_min,price_max,payors_accepted…  — or paste a CHHS CSV"></textarea>
             <div class="cov-btn-row">
               <button class="link-btn" id="import-facilities" type="button">Import CSV</button>
               <button class="link-btn" id="seed-facilities" type="button">Load CA demo data</button>

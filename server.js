@@ -1239,15 +1239,24 @@ async function handleImportFacilities(req, res) {
   const body = await readJsonBody(req).catch(() => null);
   if (!body || !body.csv) return sendJson(res, 400, { error: 'Provide CSV text in { "csv": "..." }.' });
   const rows = csvLib.csvToObjects(body.csv);
+  // Detect a CHHS/CDSS-style export (e.g. "Facility Name" / "Facility Number"
+  // columns) pasted directly. Those won't match our facility column names, so
+  // route each row through the CDSS mapper first. This lets a user who can't be
+  // reached by a server-side CHHS fetch just download the file in their browser
+  // and paste it here.
+  const first = rows[0] || {};
+  const looksCdss = ['Facility Name', 'FACILITY_NAME', 'facility_name', 'Facility Number', 'FACILITY_NUMBER'].some((k) => k in first);
   let created = 0;
   const errors = [];
   for (const row of rows) {
-    const fac = normalizeFacility(row, user.id);
-    if (!fac.name || !fac.type) { errors.push(`Skipped row (missing name/type): ${row.name || '(blank)'}`); continue; }
+    const src = looksCdss ? cdss.mapRow(row) : row;
+    if (!src) { errors.push(`Skipped row (missing facility name/number): ${row['Facility Name'] || row.name || '(blank)'}`); continue; }
+    const fac = normalizeFacility(src, user.id);
+    if (!fac.name || !fac.type) { errors.push(`Skipped row (missing name/type): ${src.name || row.name || '(blank)'}`); continue; }
     await store.createFacility(fac);
     created += 1;
   }
-  return sendJson(res, 200, { created, errors });
+  return sendJson(res, 200, { created, errors, format: looksCdss ? 'cdss' : 'facility' });
 }
 
 const SAMPLE_FACILITIES = [
