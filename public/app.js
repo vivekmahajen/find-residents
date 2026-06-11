@@ -131,6 +131,7 @@ function renderFacilities(data) {
         ${phone ? `<a href="tel:${phoneDigits}">📞 ${escapeHtml(phone)}</a>` : ''}
         <a href="${f.mapsUrl}" target="_blank" rel="noopener">🗺️ Map</a>
         <span class="npi">NPI ${escapeHtml(f.npi)}</span>
+        <button type="button" class="link-btn add-contact-btn">+ Add CRM contact</button>
       </div>
       <div class="strategy-bar">
         <label class="sr-only" for="role-${f.npi}">Role to approach</label>
@@ -146,6 +147,19 @@ function renderFacilities(data) {
     const select = card.querySelector('.role-select');
     const panel = card.querySelector('.strategy-panel');
     btn.addEventListener('click', () => runStrategy(f, select.value, typeId, btn, panel));
+
+    // Prefill the CRM contact form's source ref (the NPI) from this result.
+    const addContactBtn = card.querySelector('.add-contact-btn');
+    if (addContactBtn) {
+      addContactBtn.addEventListener('click', () => {
+        const srcInput = document.getElementById('cn-source');
+        const nameInput = document.getElementById('cn-name');
+        if (srcInput) srcInput.value = f.npi || f.name;
+        const panelEl = document.getElementById('crm-panel');
+        if (panelEl) panelEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        if (nameInput) setTimeout(() => nameInput.focus(), 400);
+      });
+    }
 
     resultsEl.appendChild(card);
   }
