@@ -1395,3 +1395,44 @@ main {
     transform: rotate(360deg);
   }
 }
+
+/* ===== App shell (beta) ===== */
+.shell-body { margin: 0; }
+.skip-link { position: absolute; left: -999px; top: 0; background: var(--brand); color: #fff; padding: 0.5rem 0.9rem; border-radius: 0 0 8px 0; z-index: 100; }
+.skip-link:focus { left: 0; }
+.shell { display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; }
+.sidebar { background: var(--card); border-right: 1px solid var(--border); display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh; overflow-y: auto; }
+.sidebar-brand { font-weight: 700; padding: 1rem 1.1rem; font-size: 1.05rem; display: flex; gap: 0.4rem; align-items: center; }
+.sidebar-nav { display: flex; flex-direction: column; gap: 0.15rem; padding: 0.4rem; }
+.nav-item { display: flex; align-items: center; gap: 0.6rem; padding: 0.6rem 0.75rem; border: none; background: none; border-radius: 9px; font-size: 0.95rem; color: var(--ink); cursor: pointer; text-align: left; text-decoration: none; }
+.nav-item:hover { background: var(--bg); }
+.nav-item.active { background: rgba(31,111,235,0.1); color: var(--brand); font-weight: 600; }
+.nav-icon { width: 1.3rem; text-align: center; }
+.shell-main { display: flex; flex-direction: column; min-width: 0; }
+.shell-header { display: flex; align-items: center; gap: 0.75rem; padding: 0.8rem 1.25rem; background: var(--card); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 10; }
+.view-title { margin: 0; font-size: 1.1rem; }
+.shell-spacer { flex: 1; }
+.user-menu { display: flex; align-items: center; gap: 0.6rem; }
+.hamburger { display: none; font-size: 1.2rem; background: none; border: none; cursor: pointer; }
+.outlet { padding: 1.25rem; max-width: 980px; margin: 0 auto; width: 100%; box-sizing: border-box; }
+.view-loading { color: var(--muted); padding: 2rem; text-align: center; }
+.auth-inline { max-width: 420px; margin: 2rem auto; }
+.drawer-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.35); z-index: 20; }
+@media (max-width: 760px) {
+  .shell { grid-template-columns: 1fr; }
+  .sidebar { position: fixed; left: 0; top: 0; width: 240px; transform: translateX(-100%); transition: transform 0.2s ease; z-index: 30; }
+  .sidebar.open { transform: translateX(0); }
+  .hamburger { display: block; }
+}
+@media (prefers-reduced-motion: reduce) { .sidebar { transition: none; } }
+
+/* Shell widgets: CDSS Coverage + Resources layout */
+.cov-tools { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1rem 0; }
+.cov-block { background: var(--surface, #fff); border: 1px solid var(--border, #e2e8f0); border-radius: 10px; padding: 1rem; }
+.cov-block h3 { margin: 0 0 .5rem; }
+.cov-block textarea { width: 100%; box-sizing: border-box; font-family: inherit; }
+.cov-btn-row { display: flex; gap: .5rem; align-items: center; margin-top: .5rem; flex-wrap: wrap; }
+.cov-add { margin: 1rem 0; }
+.cov-add > summary { cursor: pointer; font-weight: 600; padding: .4rem 0; }
+.cov-form { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: .6rem; margin: .6rem 0; }
+@media (max-width: 760px) { .cov-tools { grid-template-columns: 1fr; } }

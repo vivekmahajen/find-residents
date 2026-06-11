@@ -1704,6 +1704,11 @@ async function route(req, res) {
   if (pathname === '/app') {
     return (await currentUser(req)) ? serveStatic(req, res, '/app.html') : redirect(res, '/');
   }
+  // New SPA app shell (beta). Served for the shell root and all deep links; the
+  // client router + auth guard handle the rest (APIs remain server-enforced).
+  if (pathname === '/shell' || pathname.startsWith('/shell/')) {
+    return serveStatic(req, res, '/shell.html');
+  }
 
   // --- Auth API (public) ---
   if (pathname === '/api/auth/signup' && method === 'POST') return handleSignup(req, res);

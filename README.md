@@ -8,6 +8,15 @@ A playbook for building a repeatable pipeline of residents/clients, plus a compr
 
 A web app with **accounts and credit-based pricing**, where logged-in agencies search **Tier 1 referral sources** — **hospitals**, **skilled nursing facilities (SNFs)**, and **hospice & home-health agencies** (see §2–§3) — and spend credits on AI deliverables.
 
+### 🧭 New sidebar app shell (`/shell`, beta)
+
+A single-page **app shell** lives at `/shell`: a persistent left sidebar + a content pane that swaps widgets with no page reloads. The URL is the source of truth (History API), nav is auth-aware (logged-out → Login only; logged-in → protected views), and every widget is a lazy-loaded ES module that mounts/unmounts cleanly. The classic `/app` workspace is untouched; a **"✨ New shell (beta)"** link in the `/app` header opens it.
+
+**Adding a view is three steps — no shell edits:**
+1. Create `public/widgets/<id>.js` that `export default`s `{ title, requiresAuth, async mount(el, ctx) { …; return teardownFn; } }`. `ctx` gives you `{ user, params, navigate, refreshSession }`.
+2. Add one registry entry in `public/shell.js`: `{ id: '<id>', label: '…', icon: '…', requiresAuth: true, load: () => import('/widgets/<id>.js') }`.
+3. Fetch your data from the existing `/api/*` endpoints inside `mount`. That's it — routing, nav highlighting, the auth guard, and the loading/error states are handled by the shell.
+
 ## ☁️ Deploying to Vercel
 
 The app runs as a standalone Node server locally *and* as a Vercel serverless function (`api/index.js` reuses the same exported request handler via `vercel.json`). For Vercel you must use the **Postgres store** (the serverless filesystem is ephemeral).
