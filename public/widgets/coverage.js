@@ -109,6 +109,16 @@ export default {
       try { await fetch('/api/facilities/sample', { method: 'POST' }); load(); } finally { $('seed-facilities').disabled = false; }
     });
 
+    // Render the "why 0?" diagnostic returned by Preview or a 0-result Import.
+    function showZeroDiagnostic(dg, lead) {
+      const seen = (dg.countiesSeen || []).join(', ');
+      $('cdss-status').innerHTML = `${lead} <span class="muted">Source fetched <strong>${dg.fetchedRows || 0}</strong> rows`
+        + `${dg.mappedRows != null ? `, mapped <strong>${dg.mappedRows}</strong>` : ''}.`
+        + `${dg.columns && dg.columns.length ? ` Columns: ${esc(dg.columns.join(', '))}.` : ''}`
+        + `${seen ? ` Counties in data: ${esc(seen)}.` : ''}`
+        + `${dg.fetchedRows === 0 && dg.sampleRaw ? ` First bytes: ${esc(String(dg.sampleRaw))}` : ''}</span>`;
+    }
+
     async function cdss(dryRun) {
       $('cdss-status').textContent = dryRun ? 'Previewing…' : 'Importing…';
       try {
@@ -116,19 +126,13 @@ export default {
         const d = await r.json();
         if (!r.ok) { $('cdss-status').textContent = d.error || 'CDSS import failed.'; return; }
         if (dryRun) {
-          const dg = d.diagnostic || {};
-          if (d.count > 0) {
-            $('cdss-status').textContent = `Found ${d.count} facility/ies${d.preview && d.preview[0] ? ` — e.g. ${d.preview[0].name} (${d.preview[0].license_status})` : ''}.`;
-          } else {
-            // Zero matched — show WHY (fetched rows, columns seen, counties seen).
-            const seen = (dg.countiesSeen || []).join(', ');
-            $('cdss-status').innerHTML = `Found 0 for that county. <span class="muted">Source fetched <strong>${dg.fetchedRows || 0}</strong> rows`
-              + `${dg.mappedRows != null ? `, mapped <strong>${dg.mappedRows}</strong>` : ''}.`
-              + `${dg.columns && dg.columns.length ? ` Columns: ${esc(dg.columns.join(', '))}.` : ''}`
-              + `${seen ? ` Counties in data: ${esc(seen)}.` : ''}`
-              + `${dg.fetchedRows === 0 && dg.sampleRaw ? ` First bytes: ${esc(String(dg.sampleRaw))}` : ''}</span>`;
-          }
-        } else { $('cdss-status').textContent = `Imported ${d.created} facilities.`; load(); }
+          if (d.count > 0) $('cdss-status').textContent = `Found ${d.count} facility/ies${d.preview && d.preview[0] ? ` — e.g. ${d.preview[0].name} (${d.preview[0].license_status})` : ''}.`;
+          else showZeroDiagnostic(d.diagnostic || {}, 'Found 0 for that county.');
+        } else if (d.created > 0) {
+          $('cdss-status').textContent = `Imported ${d.created} facilities.`; load();
+        } else {
+          showZeroDiagnostic(d.diagnostic || {}, 'Imported 0 — here’s why:');
+        }
       } catch { $('cdss-status').textContent = 'Network error.'; }
     }
     $('cdss-preview').addEventListener('click', () => cdss(true));

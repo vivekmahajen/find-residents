@@ -1279,6 +1279,17 @@ async function handleCdssImport(req, res) {
       await store.createFacility(normalizeFacility(f, user.id));
       created += 1;
     }
+    // Imported nothing? Attach the same diagnostic the dry-run gives, so the
+    // reason (HTML page vs wrong columns vs county typo) is visible without
+    // making the user re-run Preview separately.
+    if (created === 0) {
+      let diagnostic = null;
+      try {
+        const d = await cdss.probeSource({ county: body.county, city: body.city, limit });
+        diagnostic = { sourceType: d.sourceType, fetchedRows: d.fetchedRows, columns: d.columns, mappedRows: d.mappedRows, countyMatched: d.countyMatched, countiesSeen: d.countiesSeen, sampleRaw: d.sampleRaw };
+      } catch { /* leave null */ }
+      return sendJson(res, 200, { created, diagnostic });
+    }
     return sendJson(res, 200, { created });
   } catch (err) {
     if (err instanceof cdss.CdssUnavailable) return sendJson(res, 503, { error: err.message, needsSetup: true });
