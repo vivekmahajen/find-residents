@@ -6,6 +6,7 @@
   "type": "commonjs",
   "scripts": {
     "start": "node server.js",
+    "test": "node --test",
     "create-admin": "node scripts/create-admin.js",
     "reset-credits": "node scripts/reset-credits.js"
   },

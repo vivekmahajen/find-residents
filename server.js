@@ -1316,6 +1316,27 @@ async function handleReports(req, res, urlObj) {
   return sendJson(res, 200, reports.buildReport(events, { now: Date.now(), days: Number.isFinite(days) ? days : 30 }));
 }
 
+async function handleOnboarding(req, res) {
+  const user = await currentUser(req);
+  if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
+  const [facilities, leads, events, contacts] = await Promise.all([
+    store.listFacilities(user.id),
+    store.listLeads(user.id),
+    store.listRecords(user.id, 'event'),
+    store.listRecords(user.id, 'contact'),
+  ]);
+  const hasEvent = (t) => events.some((e) => e.data.type === t);
+  const steps = [
+    { key: 'profile', label: 'Build your agency profile', done: !!(user.profile && !profileLib.isEmpty(user.profile)), hint: 'Agency profile panel' },
+    { key: 'facilities', label: 'Add or load care-home inventory', done: facilities.length > 0, hint: 'Care-home inventory → “Load CA demo data”' },
+    { key: 'source', label: 'Search a referral source', done: hasEvent('source_searched'), hint: 'Find referral sources' },
+    { key: 'contact', label: 'Add a decision-maker contact', done: contacts.length > 0, hint: 'Outreach CRM → Contacts' },
+    { key: 'lead', label: 'Save a client / lead', done: leads.length > 0, hint: 'Client profile → “Save to my clients”' },
+    { key: 'match', label: 'Run a care-home match', done: hasEvent('match_run'), hint: 'Click “Match” on a saved client' },
+  ];
+  return sendJson(res, 200, { steps, complete: steps.every((s) => s.done) });
+}
+
 async function handleAdminUsage(req, res) {
   const user = await currentUser(req);
   if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
@@ -1724,9 +1745,10 @@ async function route(req, res) {
   if (pathname === '/api/unsubscribe' && method === 'GET') return handleUnsubscribe(req, res, urlObj); // public
   if (pathname === '/api/cron/run') return handleCron(req, res, urlObj);
 
-  // --- Reporting (auth) + admin usage (admin) ---
+  // --- Reporting (auth) + admin usage (admin) + onboarding ---
   if (pathname === '/api/reports' && method === 'GET') return handleReports(req, res, urlObj);
   if (pathname === '/api/admin/usage' && method === 'GET') return handleAdminUsage(req, res);
+  if (pathname === '/api/onboarding' && method === 'GET') return handleOnboarding(req, res);
 
   // --- Client / lead tracker (auth) ---
   if (pathname === '/api/leads' && method === 'GET') return handleListLeads(req, res);
