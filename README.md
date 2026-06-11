@@ -151,7 +151,14 @@ Build (or import) your facility inventory, then match a saved client to a ranked
 - **Endpoints:** `GET/POST /api/facilities`, `GET/POST(update)/DELETE /api/facilities/:id`, `POST /api/facilities/import`, `POST /api/facilities/sample`, `POST /api/match`.
 - **CSV template (header row):** `name,type,city,county,zip,ca_license_number,license_status,payors_accepted,price_min,price_max,room_types,languages,capabilities,availability_status` (array columns are comma/semicolon-separated inside quotes).
 
-> Facility data is organizational (not PHI) and stored plainly. A CDSS Community Care Licensing seed adapter (license status + violations) is **left as a documented stub** — manual entry + CSV ship now; verify the current public CCLD access method before wiring an automated import.
+> Facility data is organizational (not PHI) and stored plainly.
+
+**CDSS / Community Care Licensing import** (`POST /api/facilities/cdss-import`): pulls licensed RCFEs (license #, status, address, capacity) from the public CHHS Open Data portal into your inventory — **public licensing data only, no PHI**. It's configurable rather than hardcoded, because the CHHS dataset/columns change:
+
+- Set **`CDSS_RESOURCE_ID`** (a CKAN resource id on `data.chhs.ca.gov`, queried via `datastore_search`) **or** **`CDSS_DATA_URL`** (any public CSV/JSON export URL). Optionally override column names with **`CDSS_FIELD_MAP`** (JSON) and the CKAN host with `CDSS_BASE`.
+- Find the current dataset on [data.chhs.ca.gov](https://data.chhs.ca.gov) (search "Community Care Licensing residential elder"), copy the resource id or CSV URL, and **run a dry-run preview first** (the UI's "Preview" button) to confirm the column mapping before importing.
+- Capacity ≤ 6 is mapped to board-and-care, larger to assisted living (RCFE licenses don't distinguish). **Violations** live in a separate CDSS complaints dataset — left blank with a "verify on CDSS" note; wire a second `CDSS_DATA_URL`-style source the same way if you want them inline.
+- Without the env vars, the endpoint returns a clear 503; manual entry + CSV import always work.
 
 ### 🗺️ Data coverage (optional, free)
 

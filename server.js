@@ -33,6 +33,7 @@ const matcher = require('./lib/matcher');
 const csvLib = require('./lib/csv');
 const crm = require('./lib/crm');
 const reports = require('./lib/reports');
+const cdss = require('./lib/cdss');
 
 const IS_PROD = process.env.NODE_ENV === 'production';
 
@@ -1254,6 +1255,30 @@ const SAMPLE_FACILITIES = [
   { name: 'Sample Memory Care — Elk Grove (demo)', type: 'memory_care', city: 'Elk Grove', county: 'Sacramento', zip: '95624', ca_license_number: 'DEMO-000003', license_status: 'licensed', availability_status: 'open', levels_of_care: ['memory_care'], payors_accepted: ['private', 'Medi-Cal', 'ALW'], price_min: 4000, price_max: 5500, room_types: ['private'], languages: ['english'], capabilities: ['memory_care', 'behavioral'], fee_paid_by_facility: 'one month rent', data_source: 'sample', notes: 'DEMO DATA — replace with verified facility.' },
 ];
 
+async function handleCdssImport(req, res) {
+  const user = await currentUser(req);
+  if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
+  const body = await readJsonBody(req).catch(() => ({}));
+  if (!cdss.enabled()) {
+    return sendJson(res, 503, { error: 'CDSS import is not configured. Set CDSS_RESOURCE_ID or CDSS_DATA_URL (public CHHS licensing dataset).', needsSetup: true });
+  }
+  try {
+    const facs = await cdss.fetchFacilities({ county: body.county, city: body.city, limit: Math.min(Number(body.limit) || 200, 1000) });
+    if (body.dryRun) {
+      return sendJson(res, 200, { count: facs.length, preview: facs.slice(0, 10) });
+    }
+    let created = 0;
+    for (const f of facs) {
+      await store.createFacility(normalizeFacility(f, user.id));
+      created += 1;
+    }
+    return sendJson(res, 200, { created });
+  } catch (err) {
+    if (err instanceof cdss.CdssUnavailable) return sendJson(res, 503, { error: err.message, needsSetup: true });
+    return sendJson(res, 502, { error: 'CDSS fetch failed. Verify the dataset URL/resource id and column mapping.', detail: String(err.message || err) });
+  }
+}
+
 async function handleSampleFacilities(req, res) {
   const user = await currentUser(req);
   if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
@@ -1707,6 +1732,7 @@ async function route(req, res) {
   if (pathname === '/api/facilities' && method === 'POST') return handleCreateFacility(req, res);
   if (pathname === '/api/facilities/import' && method === 'POST') return handleImportFacilities(req, res);
   if (pathname === '/api/facilities/sample' && method === 'POST') return handleSampleFacilities(req, res);
+  if (pathname === '/api/facilities/cdss-import' && method === 'POST') return handleCdssImport(req, res);
   if (pathname.startsWith('/api/facilities/')) {
     const id = decodeURIComponent(pathname.slice('/api/facilities/'.length));
     if (method === 'GET') return handleGetFacility(req, res, id);

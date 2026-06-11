@@ -348,6 +348,17 @@
           <div class="plan-footer"><span id="import-status" class="plan-status"></span><button id="import-facilities" type="button" class="deck-btn">Import</button></div>
         </details>
 
+        <details class="fac-add">
+          <summary>Import from CDSS (CA licensing data)</summary>
+          <p class="muted" style="font-size:0.82rem;">Pulls licensed RCFEs (license #, status, address, capacity) from the configured CHHS dataset. Public licensing data only — no PHI. Requires <code>CDSS_RESOURCE_ID</code> or <code>CDSS_DATA_URL</code> set on the server.</p>
+          <div class="three-col">
+            <input id="cdss-county" type="text" placeholder="County (e.g. Sacramento)" />
+            <button id="cdss-preview" type="button" class="deck-btn">Preview</button>
+            <button id="cdss-import" type="button" class="primary-btn">Import</button>
+          </div>
+          <p id="cdss-status" class="plan-status"></p>
+        </details>
+
         <h3>Facilities <span id="fac-count" class="muted"></span></h3>
         <div id="facilities-list" class="leads-list"></div>
       </section>
